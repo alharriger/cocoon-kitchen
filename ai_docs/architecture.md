@@ -21,7 +21,7 @@ recipe link / pasted text
 ## Repo layout (target, from handoff plan §4)
 
 ```
-cleanplate/
+cocoonkitchen/
 ├── CLAUDE.md, README.md, pyproject.toml, .env.example, .gitignore
 ├── ai_docs/                  # this documentation system
 ├── rubric/

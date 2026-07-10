@@ -1,8 +1,8 @@
-# CleanPlate — Product Document
+# CocoonKitchen — Product Document
 
 ## Why (the strategy)
 
-Most recipe tools count calories and macros. Almost none answer the question a health-conscious cook actually asks at the moment of choosing: **"how processed is this, really — and what's the one-ingredient fix?"** CleanPlate scores a recipe's ingredient quality (ultra-processing, added sugar, fat quality, sodium/preservatives, whole-food ratio, additives), names the offenders, and offers three practical swaps. The stance is a chef's and a physician's at once: food should be delicious first, whole second, and never moralized — we raise awareness of processing, we don't shame plates or give medical advice.
+Most recipe tools count calories and macros. Almost none answer the question a health-conscious cook actually asks at the moment of choosing: **"how processed is this, really — and what's the one-ingredient fix?"** CocoonKitchen scores a recipe's ingredient quality (ultra-processing, added sugar, fat quality, sodium/preservatives, whole-food ratio, additives), names the offenders, and offers three practical swaps. The stance is a chef's and a physician's at once: food should be delicious first, whole second, and never moralized — we raise awareness of processing, we don't shame plates or give medical advice.
 
 **The real product bet:** the moat is not the UI, it's a scoring rubric that agrees with an expert human. That's why the eval harness and golden set are first-class citizens from day one, and why no feature ships unless an eval number earns it.
 

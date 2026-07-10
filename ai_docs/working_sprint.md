@@ -40,7 +40,7 @@ Repo installs cleanly; `Verdict` validates good JSON and fails loudly on bad; `r
 
 ### Handoff notes for next session
 - Phase 0 (working system + docs + memory + roadmap) is complete and approved by Amber; the original handoff document has been fully absorbed into the ai_docs and discarded — do not expect it in the repo.
-- Everything Phase 1 needs is already documented: schema/rubric/eval contracts in `llm_contracts.md`, layout + decisions in `architecture.md`, roadmap + non-goals in `cleanplate_product.md`.
+- Everything Phase 1 needs is already documented: schema/rubric/eval contracts in `llm_contracts.md`, layout + decisions in `architecture.md`, roadmap + non-goals in `cocoonkitchen_product.md`.
 - Do NOT invent rubric weights or golden labels. Do NOT add DB/RAG/auth/UI in this phase.
 - Start by drafting the Phase 1 plan and presenting it for approval.
 

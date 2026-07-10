@@ -1,4 +1,4 @@
-# CleanPlate
+# CocoonKitchen
 
 LLM-powered recipe "clean eating" scorer. Paste a recipe or link → get a 0–100 score, band, flagged ingredients, and 3 swaps. Streamlit UI + eval harness, both importing one pure core: `score_recipe(title, ingredients) -> Verdict`.
 
@@ -9,7 +9,7 @@ LLM-powered recipe "clean eating" scorer. Paste a recipe or link → get a 0–1
 ## Reference docs (read when relevant, keep them the source of truth)
 - `ai_docs/architecture.md` — architecture decisions + decision log
 - `ai_docs/llm_contracts.md` — Verdict schema, prompt, rubric contracts (source of truth for all LLM I/O)
-- `ai_docs/cleanplate_product.md` — strategy, roadmap, user stories (the PRD)
+- `ai_docs/cocoonkitchen_product.md` — strategy, roadmap, user stories (the PRD)
 - `ai_docs/design_system.md` — UI/design system + tone rules
 
 ## Non-negotiables
