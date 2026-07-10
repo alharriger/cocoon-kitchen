@@ -1,0 +1,35 @@
+# PLACEHOLDER — human-owned, do not tune without approval.
+#
+# Weights below are the starting hypotheses documented in
+# ai_docs/llm_contracts.md (Contract 1/2) so the pipeline can run end-to-end.
+# The human finalizes weights, band cutoffs, and all marker/alias lists.
+# Rubric schema version: v0.1 (pre-label).
+
+# Sub-score weights — MUST sum to 1.0. Keys mirror SubScores in schema.py.
+weights:
+  ultra_processing: 0.30
+  added_sugar: 0.20
+  fat_quality: 0.15
+  sodium_preservatives: 0.15
+  whole_food_ratio: 0.15
+  additive_count: 0.05
+
+# Composite-score cutoffs → band, as [min, max] inclusive over 0–100.
+# PLACEHOLDER cutoffs — human to finalize.
+bands:
+  Clean: [80, 100]
+  Mostly Clean: [60, 79]
+  Processed: [40, 59]
+  Ultra-processed: [0, 39]
+
+# NOVA group-4 ultra-processing markers (ingredient tokens).
+# PLACEHOLDER — human to populate.
+nova4_markers: []
+
+# Refined / industrial seed oils.
+# PLACEHOLDER — human to populate.
+refined_seed_oils: []
+
+# Ingredient alias → canonical name map.
+# PLACEHOLDER — human to populate.
+aliases: {}

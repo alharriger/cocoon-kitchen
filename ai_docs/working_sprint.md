@@ -17,14 +17,14 @@
 ### Tasks
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1 | Write detailed Phase 1 plan + security audit; get Amber's approval | ⬜ Not started | Gate — no code before this |
-| 2 | Repo scaffold: layout (`src/clean_recipe/`, `evals/`, `rubric/`, `data/logs/`), `pyproject.toml` w/ pinned deps, `.env.example`, `.gitignore`, README stub | ⬜ Not started | Layout in `architecture.md` §"Repo layout" |
-| 3 | `schema.py`: `Verdict`, `SubScores`, `Swap` (Pydantic) | ⬜ Not started | Exact shape in `llm_contracts.md` Contract 1 |
-| 4 | `rubric/rubric.yaml` from placeholder weights + `rubric.md` stub | ⬜ Not started | Header must read PLACEHOLDER — human-owned; do NOT tune |
-| 5 | `log.py`: append-only JSONL (input + verdict), designed to wire into `score_recipe` in Phase 2 | ⬜ Not started | Logs to `data/logs/` (gitignored) |
-| 6 | Unit tests: schema validation (valid + malformed-fails-loudly), rubric.yaml loads + weights sum to 1.0, log round-trip | ⬜ Not started | Testing best practices; tests green before manual test |
-| 7 | Pause for Amber's manual test (with a concrete test script) | ⬜ Not started | Loop step 4 |
-| 8 | Merge gates: code-review sub-agent + `/security-review`; then commit + merge to main | ⬜ Not started | `/verify` is thin here (no runtime yet) — note that |
+| 1 | Write detailed Phase 1 plan + security audit; get Amber's approval | ✅ Done | Plan approved 2026-07-10 |
+| 2 | Repo scaffold: layout (`src/clean_recipe/`, `evals/`, `rubric/`, `data/logs/`), `pyproject.toml` w/ pinned deps, `.env.example`, `.gitignore`, README stub | ✅ Done | On branch `phase-1/scaffold` |
+| 3 | `schema.py`: `Verdict`, `SubScores`, `Swap` (Pydantic) | ✅ Done | Verbatim transcription of `llm_contracts.md` Contract 1 |
+| 4 | `rubric/rubric.yaml` from placeholder weights + `rubric.md` stub | ✅ Done | PLACEHOLDER header; empty marker/alias lists (human to populate) |
+| 5 | `log.py`: append-only JSONL (input + verdict), designed to wire into `score_recipe` in Phase 2 | ✅ Done | Not called at runtime yet |
+| 6 | Unit tests: schema validation (valid + malformed-fails-loudly), rubric.yaml loads + weights sum to 1.0, log round-trip | ✅ Done | 15 tests green on Python 3.12 |
+| 7 | Pause for Amber's manual test (with a concrete test script) | ✅ Done | Amber's manual test passed |
+| 8 | Merge gates: code-review sub-agent + `/security-review`; then commit + merge to main | 🟡 In progress | Both gates clean (2026-07-10): security-review found nothing; code-review confirmed faithful Contract 1/2 transcription. `/verify` skipped — no runtime yet |
 | 9 | Phase 1 retrospective → log pitfalls → refresh this doc for Phase 2 | ⬜ Not started | |
 
 ### Definition of done (Phase 1)
