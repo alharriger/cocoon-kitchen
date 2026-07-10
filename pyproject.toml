@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cocoonkitchen"
+version = "0.1.0"
+description = "LLM-powered recipe clean-eating scorer"
+requires-python = ">=3.11"
+# Pinned. Phase 1 only needs schema validation (pydantic) and rubric loading
+# (pyyaml). Streamlit / anthropic / recipe-scrapers arrive in their own phases
+# (anti-bloat: no dependency before a phase actually uses it).
+dependencies = [
+    "pydantic==2.10.6",
+    "pyyaml==6.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

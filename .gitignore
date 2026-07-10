@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Env / secrets — never commit real keys
+.env
+
+# Runtime logs (keep the dir, ignore contents)
+data/logs/*
+!data/logs/.gitkeep
+
+# Eval results
+evals/results/
+
+# OS
+.DS_Store

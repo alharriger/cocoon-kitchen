@@ -73,3 +73,4 @@ Target 20–50 rows spanning obviously-clean, obviously-ultra-processed, and man
 
 ### Change log
 - 2026-07-09 — v0.1 initial contract, from handoff plan §5. Pre-label.
+- 2026-07-10 — Phase 1: `schema.py` transcribes Contract 1 verbatim (no logic). `rubric.yaml` ships documented placeholder weights + **placeholder band cutoffs** (Clean 80–100 / Mostly Clean 60–79 / Processed 40–59 / Ultra-processed 0–39); `nova4_markers`/`refined_seed_oils`/`aliases` left empty for the human. No prompt yet. Pre-label — no eval delta.
