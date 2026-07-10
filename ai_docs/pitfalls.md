@@ -13,4 +13,14 @@ Every mistake gets logged here during the retrospective (or immediately, if it b
 
 ---
 
-*(No entries yet. May this file grow slowly.)*
+### 2026-07-10 — Package name ≠ import name
+**What happened:** The project/distribution is named `cocoonkitchen` (`pyproject.toml`, `pip install -e .`) but the source package — and therefore the import name — is `clean_recipe` (`src/clean_recipe/`). Writing `from cocoonkitchen import ...` fails.
+**Root cause:** The `cleanplate → cocoonkitchen` rename updated docs and the distribution name but intentionally left the code package as `clean_recipe` (architecture.md target layout).
+**Prevention rule:** Imports use `clean_recipe` (e.g. `from clean_recipe.schema import Verdict`). The name `cocoonkitchen` is only the pip/distribution name. Don't "fix" this mismatch — it's by design.
+**Status:** Active
+
+### 2026-07-10 — Bare `python` is not on PATH
+**What happened:** `python` and `python -m pytest` fail (`command not found`); system `python3` is EOL 3.9.6 without pytest.
+**Root cause:** This machine has no `python` shim; the working interpreter is the project venv.
+**Prevention rule:** Run Python via `.venv/bin/python` (e.g. `.venv/bin/python -m pytest`), or activate the venv first. Don't assume a bare `python`.
+**Status:** Active

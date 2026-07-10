@@ -6,48 +6,54 @@
 
 ---
 
-## Current phase: Phase 1 — Scaffold, Schemas & Logging
+## Current phase: Phase 2 — Core Engines (parallel)
 
-**Goal:** Stand up the repo skeleton that everything else imports: layout, pinned deps, the Verdict schema, a clearly-marked placeholder rubric, and JSONL logging — with unit tests. No parsing, no model calls, no UI yet.
+**Goal:** Build the three independent core tracks and integrate them so `score_recipe(title, ingredients) -> Verdict` runs end-to-end on real pasted recipes, with the eval harness able to run on sample rows.
 
-**Branch:** create `phase-1/scaffold` off `main` (Phase 0 is merged to main).
+**Branch:** create `phase-2/core-engines` off `main` (Phase 1 is merged to main).
 
-**⚠️ First task is to PLAN, not code.** Per our working loop, write the detailed Phase 1 plan (files, tests, security notes) and get Amber's explicit approval BEFORE writing any code. Read `CLAUDE.md`, then this file, then `ai_docs/pitfalls.md`. The relevant contracts already live in `ai_docs/llm_contracts.md` (schema + rubric) and the layout in `ai_docs/architecture.md`.
+**⚠️ First task is to PLAN, not code.** Per our working loop, write the detailed Phase 2 plan (files, tests, security notes, how the three tracks integrate) and get Amber's explicit approval BEFORE writing any code. Read `CLAUDE.md`, this file, then `ai_docs/pitfalls.md`. Contracts live in `ai_docs/llm_contracts.md` (schema/prompt/rubric); architecture + sub-agent build model in `ai_docs/architecture.md`.
+
+### The three tracks (built independently, then integrated)
+1. **`parse.py`** — recipe-scrapers path + wild-mode fallback + paste path → normalized ingredient list.
+2. **`prompt.py` + `score.py::score_recipe()`** — build prompt from `rubric/rubric.yaml`, call model (cheap tier), validate output against `schema.py` (fail loudly), wire in `log.py`.
+3. **`evals/evaluate.py` skeleton + `golden_set.csv` template** — runner + metrics scaffold; sample rows only (labels are human-owned).
 
 ### Tasks
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1 | Write detailed Phase 1 plan + security audit; get Amber's approval | ✅ Done | Plan approved 2026-07-10 |
-| 2 | Repo scaffold: layout (`src/clean_recipe/`, `evals/`, `rubric/`, `data/logs/`), `pyproject.toml` w/ pinned deps, `.env.example`, `.gitignore`, README stub | ✅ Done | On branch `phase-1/scaffold` |
-| 3 | `schema.py`: `Verdict`, `SubScores`, `Swap` (Pydantic) | ✅ Done | Verbatim transcription of `llm_contracts.md` Contract 1 |
-| 4 | `rubric/rubric.yaml` from placeholder weights + `rubric.md` stub | ✅ Done | PLACEHOLDER header; empty marker/alias lists (human to populate) |
-| 5 | `log.py`: append-only JSONL (input + verdict), designed to wire into `score_recipe` in Phase 2 | ✅ Done | Not called at runtime yet |
-| 6 | Unit tests: schema validation (valid + malformed-fails-loudly), rubric.yaml loads + weights sum to 1.0, log round-trip | ✅ Done | 15 tests green on Python 3.12 |
-| 7 | Pause for Amber's manual test (with a concrete test script) | ✅ Done | Amber's manual test passed |
-| 8 | Merge gates: code-review sub-agent + `/security-review`; then commit + merge to main | 🟡 In progress | Both gates clean (2026-07-10): security-review found nothing; code-review confirmed faithful Contract 1/2 transcription. `/verify` skipped — no runtime yet |
-| 9 | Phase 1 retrospective → log pitfalls → refresh this doc for Phase 2 | ⬜ Not started | |
+| 1 | Write detailed Phase 2 plan + security audit; get Amber's approval | ⬜ Not started | **← start here.** Cover model-call security (key handling, no secrets in logs), parse of untrusted URLs/HTML |
+| 2 | Track A — `parse.py` + tests | ⬜ Not started | recipe-scrapers + wild-mode fallback + paste + normalize |
+| 3 | Track B — `prompt.py` + `score.py::score_recipe()` + tests | ⬜ Not started | prompt from rubric.yaml; validate against schema; wire `log.py` |
+| 4 | Track C — `evals/evaluate.py` skeleton + `golden_set.csv` template + tests | ⬜ Not started | metrics scaffold; sample rows only, NO real labels |
+| 5 | Integrate tracks on the branch; end-to-end smoke on real pasted recipes | ⬜ Not started | `score_recipe()` returns valid Verdicts; harness runs on samples |
+| 6 | Pause for Amber's manual test (with a concrete test script) | ⬜ Not started | |
+| 7 | Merge gates: `/verify` (now meaningful — real runtime) + code-review sub-agent + `/security-review`; commit + merge to main | ⬜ Not started | |
+| 8 | Phase 2 retrospective → log pitfalls → refresh this doc for Phase 3 | ⬜ Not started | |
 
-### Definition of done (Phase 1)
-Repo installs cleanly; `Verdict` validates good JSON and fails loudly on bad; `rubric.yaml` loads with weights summing to 1.0; `log.py` round-trips a record; unit tests green; docs still in sync; merged to main.
+### Definition of done (Phase 2)
+`score_recipe()` returns schema-valid Verdicts on real pasted recipes; `parse.py` handles link + wild + paste inputs; `evals/evaluate.py` runs on the sample golden rows and emits metrics; every input+verdict is logged via `log.py`; unit tests green; docs in sync; merged to main. (Model calls now need `ANTHROPIC_API_KEY` in `.env` — Phase 1 shipped `.env.example`.)
 
 ### Decisions carried in
-- Streamlit v0, pure-Python core, FastAPI later (`architecture.md` decision log).
-- No DB/RAG/auth/vector store until an eval number demands it.
-- Rubric weights + golden labels are human-owned; Phase 1 ships placeholders only, clearly marked.
+- `score_recipe()` stays pure/UI-agnostic in `src/clean_recipe/`; never imports Streamlit (architecture.md load-bearing rule).
+- New deps arrive only as their track needs them: `anthropic`, `recipe-scrapers` (anti-bloat; pin exact versions, log in architecture.md).
+- Rubric weights + golden labels are human-owned placeholders; do NOT invent or edit them. Track C ships a template + sample rows only.
+- Malformed model output must fail loudly (ValidationError), never coerce.
+
+### Environment reminders (from Phase 1 pitfalls)
+- Import name is `clean_recipe`, NOT `cocoonkitchen` (that's only the pip name).
+- Run Python via `.venv/bin/python` (e.g. `.venv/bin/python -m pytest`); bare `python` isn't on PATH.
 
 ### Blockers
-- None to start (planning can begin immediately). Real rubric weights + golden labels are only needed at Phase 5.
+- Model calls require `ANTHROPIC_API_KEY` (Amber to provide a `.env`). Real golden labels are not needed until Phase 5 — samples suffice for the harness skeleton.
 
 ### Handoff notes for next session
-- Phase 0 (working system + docs + memory + roadmap) is complete and approved by Amber; the original handoff document has been fully absorbed into the ai_docs and discarded — do not expect it in the repo.
-- Everything Phase 1 needs is already documented: schema/rubric/eval contracts in `llm_contracts.md`, layout + decisions in `architecture.md`, roadmap + non-goals in `cocoonkitchen_product.md`.
-- Do NOT invent rubric weights or golden labels. Do NOT add DB/RAG/auth/UI in this phase.
-- Start by drafting the Phase 1 plan and presenting it for approval.
+- Phase 1 (scaffold, Verdict schema, placeholder rubric, JSONL logging, 15 tests) is merged to main and approved.
+- Everything Phase 2 needs is documented: schema/prompt/rubric contracts in `llm_contracts.md`, core shape + sub-agent build model in `architecture.md`.
+- Start by drafting the Phase 2 plan and presenting it for approval. Consider the parallel-worktree sub-agent model (architecture.md) for the three tracks.
 
 ---
 
 ## Completed phases
 - **Phase 0 — Working System & Foundation Docs** ✅ (2026-07-09): light CLAUDE.md; six ai_docs; memory (working-agreements, quality-practices, doc-system w/ doc-sync rule); roadmap + six practices approved by Amber. Merged to main.
-
-## Queued next: Phase 2 — Core Engines (parallel)
-Three independent tracks built by parallel sub-agents in isolated worktrees, then integrated: `parse.py` (recipe-scrapers + wild-mode fallback + paste + normalize) · `prompt.py` + `score.py::score_recipe()` · `evals/evaluate.py` skeleton + `golden_set.csv` template. Exit gate: `score_recipe()` returns valid Verdicts on real pasted recipes; harness runs on sample rows.
+- **Phase 1 — Scaffold, Schemas & Logging** ✅ (2026-07-10): repo layout; pinned phase-scoped deps (pydantic/pyyaml/pytest, Python 3.12); `schema.py` (Verdict/SubScores/Swap, verbatim from Contract 1); placeholder `rubric.yaml`/`rubric.md` (human-owned); append-only `log.py`; 15 unit tests. Merge gates clean (security-review + code-review). Merged to main. Retro pitfalls logged: package-vs-import name split, run Python via venv.
