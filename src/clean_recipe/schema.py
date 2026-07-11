@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Swap(BaseModel):
@@ -21,23 +21,24 @@ class Swap(BaseModel):
     reason: str  # one line
 
 
+# Each sub-score is 0–100 (higher = cleaner). The bounds are ENFORCED here so an
+# out-of-range value from a flaky/cheap model raises ValidationError → the model
+# output fails loud (retry-once, never a silently-clamped card). Weights
+# (human-owned, placeholder) live in rubric.yaml, not here.
 class SubScores(BaseModel):
-    """All fields 0–100. Weights (human-owned, placeholder) live in rubric.yaml;
-    they are noted here only for traceability, not enforced in this file."""
-
-    ultra_processing: float       # weight 0.30
-    added_sugar: float            # weight 0.20
-    fat_quality: float            # weight 0.15
-    sodium_preservatives: float   # weight 0.15
-    whole_food_ratio: float       # weight 0.15
-    additive_count: float         # weight 0.05
+    ultra_processing: float = Field(ge=0, le=100)       # weight 0.30
+    added_sugar: float = Field(ge=0, le=100)            # weight 0.20
+    fat_quality: float = Field(ge=0, le=100)            # weight 0.15
+    sodium_preservatives: float = Field(ge=0, le=100)   # weight 0.15
+    whole_food_ratio: float = Field(ge=0, le=100)       # weight 0.15
+    additive_count: float = Field(ge=0, le=100)         # weight 0.05
 
 
 Band = Literal["Clean", "Mostly Clean", "Processed", "Ultra-processed"]
 
 
 class Verdict(BaseModel):
-    score: int                    # 0–100 composite
+    score: int = Field(ge=0, le=100)  # 0–100 composite (computed in code)
     band: Band
     sub_scores: SubScores
     flagged_ingredients: list[str]
