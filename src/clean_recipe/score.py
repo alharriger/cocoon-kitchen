@@ -41,6 +41,12 @@ class ScoringError(RuntimeError):
 
 def _parse(raw: str) -> ModelOutput:
     """Parse+validate one raw model response; raises on malformed output."""
+    if not raw.strip():
+        raise ScoringError(
+            "model returned empty content — it likely spent its whole token budget "
+            "on hidden reasoning before emitting JSON. Disable the provider's thinking "
+            'mode (e.g. set LLM_EXTRA_BODY={"thinking":{"type":"disabled"}} for GLM).'
+        )
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
@@ -110,8 +116,9 @@ def score_recipe(
     try:
         output = _parse(raw)
     except ScoringError:
-        # One corrective retry before failing loud.
-        raw = complete_json(messages + [_REPAIR_HINT], model=model)
+        # One corrective retry before failing loud, with extra headroom as a
+        # safety net for providers whose thinking can't be fully disabled.
+        raw = complete_json(messages + [_REPAIR_HINT], model=model, max_tokens=4096)
         output = _parse(raw)
 
     verdict = _build_verdict(output, rubric)

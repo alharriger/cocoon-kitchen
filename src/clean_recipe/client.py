@@ -13,15 +13,35 @@ Security: the API key comes only from the environment and is never logged.
 """
 from __future__ import annotations
 
+import json
 import os
 
 from openai import OpenAI
 
-# GLM-4.5-Flash (and other thinking-tier models) spend reasoning tokens *before*
-# the answer, so the ceiling must be generous or ``content`` comes back empty
-# (see ai_docs/pitfalls.md 2026-07-11). A full Verdict payload is small; this
-# leaves ample room for hidden reasoning.
-DEFAULT_MAX_TOKENS = 1500
+# The JSON payload is small (~250 tokens). With thinking disabled (see
+# LLM_EXTRA_BODY below) this is plenty; it also leaves headroom for providers
+# without a thinking toggle. Do NOT rely on a big ceiling to tame a thinking
+# model — GLM's reasoning is unbounded and will eat any budget (pitfalls.md).
+DEFAULT_MAX_TOKENS = 2048
+
+
+def _extra_body() -> dict:
+    """Optional provider-specific request params, as a JSON object in the
+    ``LLM_EXTRA_BODY`` env var. Keeps the seam provider-neutral while letting the
+    config pass things like GLM's ``{"thinking": {"type": "disabled"}}`` (which
+    this scoring task needs — GLM's reasoning otherwise consumes the whole token
+    budget before it emits JSON). Empty/unset → no extra params.
+    """
+    raw = os.environ.get("LLM_EXTRA_BODY")
+    if not raw or not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"LLM_EXTRA_BODY is not valid JSON: {e}") from e
+    if not isinstance(value, dict):
+        raise RuntimeError("LLM_EXTRA_BODY must be a JSON object")
+    return value
 
 
 def _client() -> OpenAI:
@@ -58,5 +78,6 @@ def complete_json(
         response_format={"type": "json_object"},
         max_tokens=max_tokens,
         temperature=temperature,
+        extra_body=_extra_body() or None,
     )
     return resp.choices[0].message.content or ""
