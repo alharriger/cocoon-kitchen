@@ -7,12 +7,16 @@ name = "cocoonkitchen"
 version = "0.1.0"
 description = "LLM-powered recipe clean-eating scorer"
 requires-python = ">=3.11"
-# Pinned. Phase 1 only needs schema validation (pydantic) and rubric loading
-# (pyyaml). Streamlit / anthropic / recipe-scrapers arrive in their own phases
-# (anti-bloat: no dependency before a phase actually uses it).
+# Pinned, phase-scoped (anti-bloat: no dependency before a phase uses it).
+# Phase 1: pydantic (schema), pyyaml (rubric). Phase 2 adds the model call:
+# openai (provider-neutral OpenAI-compatible client seam) + python-dotenv
+# (entrypoints load .env; the pure core reads os.environ). recipe-scrapers
+# arrives with Track A. Streamlit arrives in Phase 3.
 dependencies = [
     "pydantic==2.10.6",
     "pyyaml==6.0.2",
+    "openai==2.45.0",
+    "python-dotenv==1.2.2",
 ]
 
 [project.optional-dependencies]
