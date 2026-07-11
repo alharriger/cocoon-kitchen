@@ -39,7 +39,7 @@ Machine-readable rubric: `weights`, `bands` (score cutoffs), `nova4_markers`, `r
 Built by `prompt.py` from rubric.yaml + normalized ingredients. Requirements:
 - Recipe text is **untrusted data**, not instructions. The prompt must delimit it clearly and instruct the model to ignore any instructions embedded in recipe content (prompt-injection defense).
 - Tone guardrail baked in: ingredient-processing **awareness**, never moral judgment or medical advice; non-shaming language in swaps and reasons.
-- Model access: **provider-neutral** via an OpenAI-compatible client (`base_url` + `api_key` + `model` = config, not code). Default the cheapest capable **structured-output** tier on a free plan for v0 testing — **v0 default: Google Gemini Flash-Lite free tier; free backup: Groq `gpt-oss-20b`.** Provider/model is chosen by the golden-set eval, **never by brand**; upgrade only if an eval number demands it. See `architecture.md` 2026-07-11 decision for the full field survey.
+- Model access: **provider-neutral** via an OpenAI-compatible client (`base_url` + `api_key` + `model` = config, not code). **Development default: Zhipu GLM-4.5-Flash on z.ai (always $0, OpenAI-compatible) — build and prove the whole pipeline on it, then run the multi-provider bake-off on the golden set.** Provider/model is chosen by the golden-set eval, **never by brand**; upgrade only if an eval number demands it. Bake-off candidates + full field survey in `architecture.md` 2026-07-11 decision.
 - Validate every response against Contract 1 and **retry once** on malformed output (fail loud after) — this keeps cheap/free non-strict models safe.
 
 ## Contract 4: Golden-set label format
