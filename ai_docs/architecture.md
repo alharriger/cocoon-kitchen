@@ -38,6 +38,11 @@ cocoonkitchen/
 
 ## Decision log
 
+### 2026-07-11 — Phase 2 core-engine decisions
+- **Composite score & band are computed in code, not by the model.** `score.py` weights the model's six sub-scores by `rubric.yaml` and looks up the band cutoff. The human-owned weights stay authoritative and the roll-up is deterministic; the model only judges the six 0–100 sub-scores (higher = cleaner). **Revisit when:** an eval shows a model-produced holistic score beats the computed composite.
+- **`parse.py` fetches URLs behind a pinned-IP SSRF guard.** Resolve + validate once, then connect to that exact IP while presenting the hostname for the Host header, TLS SNI, and cert verification — closing the DNS-rebinding TOCTOU (found in the Phase 2 security review). Timeout + 2 MiB cap + per-hop redirect revalidation. Paste remains the primary, network-free path (non-goal: scraper heroics).
+- **`clean_recipe.cli`** is the dev/manual-test entrypoint (dotenv → `parse_recipe` → `score_recipe`); the real UI is Phase 3 (Streamlit).
+
 ### 2026-07-11 — LLM provider strategy: neutral seam, free-tier-first, eval-selected
 Model access goes through a thin **OpenAI-compatible Chat Completions client** (`base_url` + `api_key` + `model` are config, not code) — no heavy provider-abstraction layer (anti-bloat). Nearly every candidate speaks this API: OpenAI, DeepSeek, Qwen, Zhipu GLM (via z.ai), Groq, Together, OpenRouter, and **Gemini via its OpenAI-compat endpoint**. Switching providers = changing env vars.
 - **Development default (build + prove the whole pipeline): Zhipu GLM-4.5-Flash on z.ai** — always $0 in/out, JSON-schema output, 128K context, OpenAI-compatible (`base_url=https://api.z.ai/api/paas/v4`, `model=glm-4.5-flash`; the `/api/openai/v1` path returns a wrapped 404 — verified 2026-07-11), no card. **It is a thinking model** — reasoning tokens come back in a separate `reasoning_content` field and are spent before the answer, so budget `max_tokens` generously (≥512, more for a full Verdict) or `content` is empty. Sign up on **z.ai international**, NOT bigmodel.cn (needs a Chinese phone). ~1 req/sec limit is fine for dev; validate-and-retry-once covers its weaker adversarial-JSON robustness. **Per Amber (2026-07-11): build and test the entire system on GLM-Flash first, then defer model choice to the eval bake-off.**

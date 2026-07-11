@@ -22,13 +22,13 @@
 ### Tasks
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1 | Write detailed Phase 2 plan + security audit; get Amber's approval | ⬜ Not started | **← start here.** Cover model-call security (key handling, no secrets in logs), parse of untrusted URLs/HTML |
-| 2 | Track A — `parse.py` + tests | ⬜ Not started | recipe-scrapers + wild-mode fallback + paste + normalize |
-| 3 | Track B — `prompt.py` + `score.py::score_recipe()` + tests | ⬜ Not started | prompt from rubric.yaml; validate against schema; wire `log.py` |
-| 4 | Track C — `evals/evaluate.py` skeleton + `golden_set.csv` template + tests | ⬜ Not started | metrics scaffold; sample rows only, NO real labels |
-| 5 | Integrate tracks on the branch; end-to-end smoke on real pasted recipes | ⬜ Not started | `score_recipe()` returns valid Verdicts; harness runs on samples |
-| 6 | Pause for Amber's manual test (with a concrete test script) | ⬜ Not started | |
-| 7 | Merge gates: `/verify` (now meaningful — real runtime) + code-review sub-agent + `/security-review`; commit + merge to main | ⬜ Not started | |
+| 1 | Write detailed Phase 2 plan + security audit; get Amber's approval | ✅ Done | Approved as-is 2026-07-11; build style: B first, then A+C parallel |
+| 2 | Track A — `parse.py` + tests | ✅ Done | paste + known-site + wild fallback; SSRF-guarded fetch (pinned IP); 22 tests |
+| 3 | Track B — `prompt.py` + `client.py` + `score.py::score_recipe()` + tests | ✅ Done | provider seam; model returns sub_scores/flagged/swaps, code composes score+band; retry-once; 21 tests |
+| 4 | Track C — `evals/evaluate.py` + `golden_set.csv` template + tests | ✅ Done | band accuracy + score MAE; `--model` bake-off flag; 3 SAMPLE rows; 11 tests |
+| 5 | Integrate tracks on the branch; end-to-end smoke on real pasted recipes | ✅ Done | `cli.py` routes parse→score; verified on GLM (Verdict returned, logged) |
+| 6 | Pause for Amber's manual test (with a concrete test script) | 🟡 In progress | **← current: awaiting Amber's manual test** |
+| 7 | Merge gates: `/verify` + code-review sub-agent + `/security-review`; commit + merge to main | 🟡 Partial | `/security-review` done — DNS-rebinding TOCTOU found + fixed (pinned IP). `/verify` + code-review + merge pending after manual test |
 | 8 | Phase 2 retrospective → log pitfalls → refresh this doc for Phase 3 | ⬜ Not started | |
 
 ### Definition of done (Phase 2)
