@@ -6,55 +6,56 @@
 
 ---
 
-## Current phase: Phase 2 — Core Engines (parallel)
+## Current phase: Phase 3 — UI & End-to-End
 
-**Goal:** Build the three independent core tracks and integrate them so `score_recipe(title, ingredients) -> Verdict` runs end-to-end on real pasted recipes, with the eval harness able to run on sample rows.
+**Goal:** A local Streamlit app where you paste a recipe (or a link) and get a Verdict card — score, band, flagged ingredients, 3 swaps — rendered in the product's non-shaming tone. `app.py` is a **thin consumer** of the already-built core (`parse_recipe` → `score_recipe`); no scoring logic lives in the UI.
 
-**Branch:** create `phase-2/core-engines` off `main` (Phase 1 is merged to main).
+**Branch:** create `phase-3/ui` off `main` (Phase 2 is merged to main).
 
-**⚠️ First task is to PLAN, not code.** Per our working loop, write the detailed Phase 2 plan (files, tests, security notes, how the three tracks integrate) and get Amber's explicit approval BEFORE writing any code. Read `CLAUDE.md`, this file, then `ai_docs/pitfalls.md`. Contracts live in `ai_docs/llm_contracts.md` (schema/prompt/rubric); architecture + sub-agent build model in `ai_docs/architecture.md`.
-
-### The three tracks (built independently, then integrated)
-1. **`parse.py`** — recipe-scrapers path + wild-mode fallback + paste path → normalized ingredient list.
-2. **`prompt.py` + `score.py::score_recipe()`** — build prompt from `rubric/rubric.yaml`, call model (cheap tier), validate output against `schema.py` (fail loudly), wire in `log.py`.
-3. **`evals/evaluate.py` skeleton + `golden_set.csv` template** — runner + metrics scaffold; sample rows only (labels are human-owned).
+**⚠️ First task is to PLAN, not code.** Per our working loop, write the detailed Phase 3 plan (files, UI states, error handling, security notes) and get Amber's approval BEFORE writing any code. Read `CLAUDE.md`, this file, `ai_docs/pitfalls.md`, and **`ai_docs/design_system.md`** (UI/tone source of truth).
 
 ### Tasks
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1 | Write detailed Phase 2 plan + security audit; get Amber's approval | ✅ Done | Approved as-is 2026-07-11; build style: B first, then A+C parallel |
-| 2 | Track A — `parse.py` + tests | ✅ Done | paste + known-site + wild fallback; SSRF-guarded fetch (pinned IP); 22 tests |
-| 3 | Track B — `prompt.py` + `client.py` + `score.py::score_recipe()` + tests | ✅ Done | provider seam; model returns sub_scores/flagged/swaps, code composes score+band; retry-once; 21 tests |
-| 4 | Track C — `evals/evaluate.py` + `golden_set.csv` template + tests | ✅ Done | band accuracy + score MAE; `--model` bake-off flag; 3 SAMPLE rows; 11 tests |
-| 5 | Integrate tracks on the branch; end-to-end smoke on real pasted recipes | ✅ Done | `cli.py` routes parse→score; verified on GLM (Verdict returned, logged) |
-| 6 | Pause for Amber's manual test (with a concrete test script) | ✅ Done | Amber satisfied 2026-07-11. Surfaced a real bug (empty content — GLM unbounded thinking); fixed via LLM_EXTRA_BODY thinking-off |
-| 7 | Merge gates: `/verify` + code-review sub-agent + `/security-review`; commit + merge to main | 🟡 In progress | `/security-review` done (TOCTOU fixed). `/verify` + code-review + merge underway |
-| 8 | Phase 2 retrospective → log pitfalls → refresh this doc for Phase 3 | ⬜ Not started | |
+| 1 | Write detailed Phase 3 plan + security audit; get Amber's approval | ⬜ Not started | **← start here.** Cover: input handling, error/empty states, no secrets in UI, untrusted paste/URL already handled by parse.py |
+| 2 | Add `streamlit` (pinned) to `pyproject.toml`; `app.py` scaffold | ⬜ Not started | streamlit entrypoint loads `.env` (dotenv), like cli.py |
+| 3 | `app.py`: paste/link toggle → `parse_recipe` → `score_recipe` → render Verdict card | ⬜ Not started | card = score, band, six sub-scores, flagged list, 3 swaps |
+| 4 | Error/empty states: parse failure → paste-fallback message; ScoringError → friendly message; loading spinner | ⬜ Not started | never dump a traceback at the user |
+| 5 | Design/tone pass per `design_system.md` (awareness not shaming; band styling) | ⬜ Not started | |
+| 6 | Pause for Amber's manual test (`streamlit run app.py`; paste + link) | ⬜ Not started | full local flow |
+| 7 | Merge gates: `/verify` + code-review sub-agent + `/security-review`; merge to main | ⬜ Not started | |
+| 8 | Phase 3 retrospective → log pitfalls → refresh this doc for Phase 4 | ⬜ Not started | |
 
-### Definition of done (Phase 2)
-`score_recipe()` returns schema-valid Verdicts on real pasted recipes; `parse.py` handles link + wild + paste inputs; `evals/evaluate.py` runs on the sample golden rows and emits metrics; every input+verdict is logged via `log.py`; unit tests green; docs in sync; merged to main. (Model calls need the provider key in `.env` — dev default a free **z.ai / GLM-4.5-Flash** key, no card. `.env.example` already ships the neutral `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` scheme.)
+### Definition of done (Phase 3)
+`streamlit run app.py` locally: pasting a recipe (or a supported link) returns a sane Verdict card in the right tone; parse/scoring failures show friendly messages, not tracebacks; every scored recipe is logged (already handled by `score_recipe`); unit tests still green; docs in sync; merged to main.
 
 ### Decisions carried in
-- `score_recipe()` stays pure/UI-agnostic in `src/clean_recipe/`; never imports Streamlit (architecture.md load-bearing rule).
-- **LLM provider is neutral/config-driven** (see architecture.md 2026-07-11 decision): **development default Zhipu GLM-4.5-Flash on z.ai (always free)** — build and test the whole system on it first; the bargain-model bake-off (Gemini/Groq/DeepSeek/Qwen/…) runs on the golden set later, model chosen by the eval, not brand. Track B builds `score_recipe` behind an **OpenAI-compatible client seam** (`base_url`+`api_key`+`model` from config) + **validate-and-retry-once** on malformed output. Track C's eval harness should be able to compare providers on the golden set.
-- New deps arrive only as their track needs them: an **OpenAI-compatible client (`openai`, used with per-provider `base_url`)** for Track B, `recipe-scrapers` for Track A (anti-bloat; pin exact versions, log in architecture.md).
-- Rubric weights + golden labels are human-owned placeholders; do NOT invent or edit them. Track C ships a template + sample rows only.
-- Malformed model output must fail loudly (ValidationError), never coerce (retry once, then fail loud).
+- **`app.py` is a thin consumer** — it imports `parse_recipe`/`score_recipe` and renders; it never re-implements scoring or logging (architecture load-bearing rule). Logging is already wired inside `score_recipe` (`log=True` default).
+- Provider is config via `.env` (dev default GLM-4.5-Flash, thinking off via `LLM_EXTRA_BODY`). The Streamlit entrypoint loads dotenv; the pure core reads `os.environ`.
+- Untrusted input (paste text, recipe URLs) is already defended in `parse.py` (SSRF-guarded fetch) and `prompt.py` (injection defense) — the UI adds no new trust boundary beyond not leaking the key.
+- New dep: `streamlit` (pinned exact; anti-bloat — first UI dep). Deploy (Streamlit Cloud) is Phase 4, not now.
+- `ai_docs/design_system.md` is the UI/tone source of truth.
 
-### Environment reminders (from Phase 1 pitfalls)
-- Import name is `clean_recipe`, NOT `cocoonkitchen` (that's only the pip name).
-- Run Python via `.venv/bin/python` (e.g. `.venv/bin/python -m pytest`); bare `python` isn't on PATH.
+### Environment reminders (from pitfalls)
+- Import name is `clean_recipe`, NOT `cocoonkitchen`.
+- Run Python via `.venv/bin/python`; bare `python` isn't on PATH.
+- Model calls need `.env` (already set up: z.ai GLM key + `LLM_EXTRA_BODY={"thinking":{"type":"disabled"}}`).
 
 ### Blockers
-- Model calls require the provider key in a `.env` (dev default: a **free z.ai / GLM-4.5-Flash key**, no card — sign up at z.ai, Profile → API Keys). Amber to create it. Real golden labels are not needed until Phase 5 — samples suffice for the harness skeleton.
+- None. Core engines are built, tested (77 tests), and verified end-to-end on GLM; the `.env` key is in place. Real golden labels remain a Phase 5 item.
 
 ### Handoff notes for next session
-- Phase 1 (scaffold, Verdict schema, placeholder rubric, JSONL logging, 15 tests) is merged to main and approved.
-- Everything Phase 2 needs is documented: schema/prompt/rubric contracts in `llm_contracts.md`, core shape + sub-agent build model in `architecture.md`.
-- Start by drafting the Phase 2 plan and presenting it for approval. Consider the parallel-worktree sub-agent model (architecture.md) for the three tracks.
+- Phase 2 (parse + score + eval harness) is merged to main and manually verified by Amber. `score_recipe(title, ingredients) -> Verdict` and `parse_recipe(source) -> ParsedRecipe` are the two functions `app.py` wires together.
+- The CLI (`python -m clean_recipe.cli`) is a working reference for the parse→score flow; `app.py` is its Streamlit equivalent.
+- Deferred (noted for Phase 5): Contract 4's `raw_ingredients` "path to a text file" option isn't implemented in `evaluate.py` (only inline `"; "`-separated); confirm with the human whether it's still wanted when real labels land. Per-component MAE + swap-quality metrics also await golden columns.
+- Start by drafting the Phase 3 plan and presenting it for approval.
 
 ---
 
 ## Completed phases
-- **Phase 0 — Working System & Foundation Docs** ✅ (2026-07-09): light CLAUDE.md; six ai_docs; memory (working-agreements, quality-practices, doc-system w/ doc-sync rule); roadmap + six practices approved by Amber. Merged to main.
-- **Phase 1 — Scaffold, Schemas & Logging** ✅ (2026-07-10): repo layout; pinned phase-scoped deps (pydantic/pyyaml/pytest, Python 3.12); `schema.py` (Verdict/SubScores/Swap, verbatim from Contract 1); placeholder `rubric.yaml`/`rubric.md` (human-owned); append-only `log.py`; 15 unit tests. Merge gates clean (security-review + code-review). Merged to main. Retro pitfalls logged: package-vs-import name split, run Python via venv.
+- **Phase 0 — Working System & Foundation Docs** ✅ (2026-07-09): light CLAUDE.md; six ai_docs; memory; roadmap + practices approved. Merged to main.
+- **Phase 1 — Scaffold, Schemas & Logging** ✅ (2026-07-10): repo layout; pinned deps; `schema.py` (Verdict/SubScores/Swap); placeholder `rubric.yaml`; `log.py`; 15 tests. Merged to main.
+- **Phase 2 — Core Engines** ✅ (2026-07-11): `parse.py` (paste/URL, pinned-IP SSRF guard); provider-neutral `client.py`/`prompt.py`/`score.py` (GLM-4.5-Flash dev default, thinking disabled via `LLM_EXTRA_BODY`, code-composed score+band, retry-once); `evals/evaluate.py` + golden template (band accuracy + score MAE, `--model` bake-off); `cli.py`. 77 tests. Merge gates clean (security-review fixed a DNS-rebinding TOCTOU; code-review fixed a sub-score bounds gap; `/verify` real GLM end-to-end). Amber manually verified. Retro pitfalls logged: GLM unbounded-thinking (disable, don't raise tokens), z.ai base URL, schema range enforcement.
+
+## Queued next: Phase 4 — Deploy & Harden
+Streamlit Cloud URL, security review, ship `golden_set.csv` template. Exit gate: shareable link works; security review clean. (Phase 5 = real human rubric weights + 20–50 golden labels → tuning loop + the provider bake-off across the bargain models.)

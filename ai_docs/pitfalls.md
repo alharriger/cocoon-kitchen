@@ -19,6 +19,12 @@ Every mistake gets logged here during the retrospective (or immediately, if it b
 **Prevention rule:** Imports use `clean_recipe` (e.g. `from clean_recipe.schema import Verdict`). The name `cocoonkitchen` is only the pip/distribution name. Don't "fix" this mismatch — it's by design.
 **Status:** Active
 
+### 2026-07-11 — Schema validation must enforce value ranges, not just types
+**What happened:** `SubScores` fields were bare `float` (type-checked but unbounded). Code review found that a flaky model returning e.g. `1000` would be weighted and then **silently clamped** by `compose_score` into a clean-looking composite — defeating the "malformed output fails loud" guarantee.
+**Root cause:** The schema transcribed the "0–100" contract as a comment, not an enforced constraint. Type validity ≠ contract validity.
+**Prevention rule:** When a contract specifies a numeric range/enum/length, encode it in the Pydantic field (`Field(ge=0, le=100)`, `Literal[...]`, etc.), not just a comment — so out-of-contract model output raises `ValidationError` and hits the fail-loud/retry path. Clamping is not validation.
+**Status:** Active
+
 ### 2026-07-11 — z.ai base URL is `/api/paas/v4`, not `/api/openai/v1`
 **What happened:** The `.env.example` template shipped `LLM_BASE_URL=https://api.z.ai/api/openai/v1`; the first smoke test got HTTP 200 with body `{"code":500,"msg":"404 NOT_FOUND"}`. Switching to `https://api.z.ai/api/paas/v4` worked immediately.
 **Root cause:** z.ai's OpenAI-shaped endpoint is the native `/api/paas/v4/chat/completions` path; the `/api/openai/v1` route a web search suggested does not resolve. The 404 was wrapped in a 200 envelope, so it didn't raise.
