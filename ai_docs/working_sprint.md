@@ -27,8 +27,8 @@
 | 3 | Track B — `prompt.py` + `client.py` + `score.py::score_recipe()` + tests | ✅ Done | provider seam; model returns sub_scores/flagged/swaps, code composes score+band; retry-once; 21 tests |
 | 4 | Track C — `evals/evaluate.py` + `golden_set.csv` template + tests | ✅ Done | band accuracy + score MAE; `--model` bake-off flag; 3 SAMPLE rows; 11 tests |
 | 5 | Integrate tracks on the branch; end-to-end smoke on real pasted recipes | ✅ Done | `cli.py` routes parse→score; verified on GLM (Verdict returned, logged) |
-| 6 | Pause for Amber's manual test (with a concrete test script) | 🟡 In progress | **← current: awaiting Amber's manual test** |
-| 7 | Merge gates: `/verify` + code-review sub-agent + `/security-review`; commit + merge to main | 🟡 Partial | `/security-review` done — DNS-rebinding TOCTOU found + fixed (pinned IP). `/verify` + code-review + merge pending after manual test |
+| 6 | Pause for Amber's manual test (with a concrete test script) | ✅ Done | Amber satisfied 2026-07-11. Surfaced a real bug (empty content — GLM unbounded thinking); fixed via LLM_EXTRA_BODY thinking-off |
+| 7 | Merge gates: `/verify` + code-review sub-agent + `/security-review`; commit + merge to main | 🟡 In progress | `/security-review` done (TOCTOU fixed). `/verify` + code-review + merge underway |
 | 8 | Phase 2 retrospective → log pitfalls → refresh this doc for Phase 3 | ⬜ Not started | |
 
 ### Definition of done (Phase 2)
