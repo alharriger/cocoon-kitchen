@@ -70,3 +70,17 @@ def test_malformed_swap_fails_loudly():
     d["swaps"] = [{"from_ingredient": "butter"}]  # missing to_ingredient + reason
     with pytest.raises(ValidationError):
         Verdict.model_validate(d)
+
+
+def test_out_of_range_subscore_fails_loudly():
+    d = valid_verdict_dict()
+    d["sub_scores"]["ultra_processing"] = 150  # > 100
+    with pytest.raises(ValidationError):
+        Verdict.model_validate(d)
+
+
+def test_negative_subscore_fails_loudly():
+    d = valid_verdict_dict()
+    d["sub_scores"]["added_sugar"] = -5  # < 0
+    with pytest.raises(ValidationError):
+        Verdict.model_validate(d)

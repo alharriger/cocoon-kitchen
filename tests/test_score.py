@@ -108,6 +108,16 @@ def test_missing_subscore_key_is_malformed(monkeypatch):
         score_recipe("Cookies", ["butter"], log=False)
 
 
+def test_out_of_range_subscore_fails_loud_not_clamped(monkeypatch):
+    # A flaky model returning 1000 must fail loud, not get silently clamped into
+    # a clean-looking composite.
+    bad = model_output()
+    bad["sub_scores"]["ultra_processing"] = 1000
+    monkeypatch.setattr(score_mod, "complete_json", lambda *a, **k: json.dumps(bad))
+    with pytest.raises(ScoringError):
+        score_recipe("Cookies", ["butter"], log=False)
+
+
 def test_logs_when_enabled(monkeypatch):
     captured = {}
     monkeypatch.setattr(score_mod, "complete_json", lambda *a, **k: json.dumps(model_output()))
