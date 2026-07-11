@@ -113,7 +113,8 @@ def test_assert_public_url_rejects_non_http_schemes(url):
 
 def test_assert_public_url_accepts_public_literal_ip():
     # 93.184.216.34 (example.com) is globally routable; literal → no DNS.
-    assert _assert_public_url("https://93.184.216.34/recipe") == "93.184.216.34"
+    # Returns (host, pinned_ip) — the app connects to exactly this IP.
+    assert _assert_public_url("https://93.184.216.34/recipe") == ("93.184.216.34", "93.184.216.34")
 
 
 def test_assert_public_url_accepts_public_host_mocked_dns(monkeypatch):
@@ -122,7 +123,8 @@ def test_assert_public_url_accepts_public_host_mocked_dns(monkeypatch):
                  ("93.184.216.34", port))]
 
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
-    assert _assert_public_url("https://recipes.example.com/cookies") == "recipes.example.com"
+    assert _assert_public_url("https://recipes.example.com/cookies") == (
+        "recipes.example.com", "93.184.216.34")
 
 
 def test_assert_public_url_rejects_host_resolving_to_private(monkeypatch):
@@ -133,3 +135,25 @@ def test_assert_public_url_rejects_host_resolving_to_private(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
     with pytest.raises(ParseError, match="non-public"):
         _assert_public_url("https://sneaky.example.com/")
+
+
+def test_assert_public_url_pins_first_when_multiple_resolve(monkeypatch):
+    # If a host resolves to several public IPs, we pin one concrete address.
+    def fake_getaddrinfo(host, port, *a, **k):
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", port)),
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.35", port)),
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    host, ip = _assert_public_url("https://cdn.example.com/r")
+    assert host == "cdn.example.com" and ip == "93.184.216.34"
+
+
+def test_replace_host_rewrites_to_pinned_ip():
+    from clean_recipe.parse import _replace_host
+    assert _replace_host("https://example.com/recipe/1", "93.184.216.34") == \
+        "https://93.184.216.34/recipe/1"
+    assert _replace_host("http://example.com:8080/x", "10.0.0.9") == "http://10.0.0.9:8080/x"
+    assert _replace_host("https://example.com/x", "2606:2800:220:1:248:1893:25c8:1946") == \
+        "https://[2606:2800:220:1:248:1893:25c8:1946]/x"

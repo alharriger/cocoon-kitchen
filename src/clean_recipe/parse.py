@@ -25,9 +25,10 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import requests
+from requests.adapters import HTTPAdapter, PoolManager
 from pydantic import BaseModel
 from recipe_scrapers import scrape_html
 from recipe_scrapers._exceptions import (
@@ -82,13 +83,17 @@ def _is_public_ip(ip: ipaddress._BaseAddress) -> bool:
     )
 
 
-def _assert_public_url(url: str) -> str:
+def _assert_public_url(url: str) -> tuple[str, str]:
     """Validate ``url`` is a fetchable public http(s) endpoint; raise otherwise.
 
     Rejects non-http(s) schemes and any host that resolves to a private,
     loopback, link-local, multicast, reserved, or unspecified address. This is
     the SSRF guard for the untrusted recipe URL — call it before every fetch and
-    on every redirect hop. Returns the validated host on success.
+    on every redirect hop. Returns ``(host, pinned_ip)``: the validated hostname
+    and the specific address to connect to. The caller MUST connect to exactly
+    that pinned IP (see ``_fetch_html``), so the address we vetted here is the
+    address we connect to — closing the DNS-rebinding TOCTOU where a second,
+    independent resolution could return a private IP.
     """
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_SCHEMES:
@@ -108,13 +113,17 @@ def _assert_public_url(url: str) -> str:
     except socket.gaierror as e:
         raise ParseError(f"could not resolve host {host!r}: {e}") from e
 
+    validated: list[str] = []
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if not _is_public_ip(ip):
             raise ParseError(
                 f"refusing to fetch {host!r}: resolves to non-public address {ip}"
             )
-    return host
+        validated.append(str(ip))
+    if not validated:
+        raise ParseError(f"could not resolve host {host!r} to any address")
+    return host, validated[0]
 
 
 # ---- fetch ------------------------------------------------------------------
@@ -134,15 +143,60 @@ def _read_capped(resp: requests.Response) -> str:
     return b"".join(chunks).decode(encoding, errors="replace")
 
 
+class _PinnedIPAdapter(HTTPAdapter):
+    """Route the connection to a pre-validated IP while presenting the original
+    hostname for the Host header, TLS SNI, and certificate verification.
+
+    This is what makes the SSRF guard airtight: ``requests`` would otherwise
+    re-resolve the hostname itself, so a DNS-rebinding attacker could pass the
+    guard with a public IP and then be connected to a private one. By pinning the
+    exact address ``_assert_public_url`` vetted, the checked address and the
+    connected address are guaranteed identical.
+    """
+
+    def __init__(self, hostname: str, ip: str, https: bool):
+        self._hostname = hostname
+        self._ip = ip
+        # server_hostname drives SNI + cert validation against the real hostname
+        # even though we connect to the IP. Only valid for TLS pools.
+        self._extra_pool_kw = {"server_hostname": hostname} if https else {}
+        super().__init__()
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        pool_kwargs.update(self._extra_pool_kw)
+        self.poolmanager = PoolManager(
+            num_pools=connections, maxsize=maxsize, block=block, **pool_kwargs
+        )
+
+    def send(self, request, **kwargs):
+        request.headers["Host"] = self._hostname
+        request.url = _replace_host(request.url, self._ip)
+        return super().send(request, **kwargs)
+
+
+def _replace_host(url: str, ip: str) -> str:
+    """Rewrite the host in ``url`` to ``ip`` (bracketing IPv6), keeping port."""
+    parsed = urlparse(url)
+    host = f"[{ip}]" if ":" in ip else ip
+    netloc = f"{host}:{parsed.port}" if parsed.port else host
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
 def _fetch_html(url: str) -> str:
     """Fetch ``url`` as HTML with the SSRF guard, a timeout, a byte cap, and
-    manual redirect following (each hop re-validated). Raises ParseError on any
-    network or policy failure."""
+    manual redirect following (each hop re-validated). The connection is pinned
+    to the exact IP validated for that hop. Raises ParseError on any network or
+    policy failure."""
     current = url
     for _ in range(_MAX_REDIRECTS + 1):
-        _assert_public_url(current)
+        host, ip = _assert_public_url(current)
+        session = requests.Session()
+        session.mount(
+            urlparse(current).scheme + "://",
+            _PinnedIPAdapter(host, ip, https=urlparse(current).scheme == "https"),
+        )
         try:
-            resp = requests.get(
+            resp = session.get(
                 current,
                 headers={"User-Agent": _USER_AGENT},
                 timeout=_FETCH_TIMEOUT,
@@ -150,6 +204,7 @@ def _fetch_html(url: str) -> str:
                 stream=True,
             )
         except requests.RequestException as e:
+            session.close()
             raise ParseError(
                 f"could not fetch {current!r}: {e}. Paste the recipe text instead."
             ) from e
@@ -170,6 +225,7 @@ def _fetch_html(url: str) -> str:
             return _read_capped(resp)
         finally:
             resp.close()
+            session.close()
 
     raise ParseError(f"too many redirects fetching {url!r}. Paste the recipe text instead.")
 
