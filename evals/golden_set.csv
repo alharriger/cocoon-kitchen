@@ -1,0 +1,4 @@
+recipe_id,source,title,raw_ingredients,target_band,target_score,expected_swaps,notes
+sample-clean-01,pasted,Roasted Vegetable Salad,olive oil; spinach; cherry tomatoes; cucumber; chickpeas; lemon juice; sea salt,Clean,92,,SAMPLE row — human replaces with real labels. Obviously-clean whole-food example.
+sample-ultra-01,pasted,Boxed Toaster Pastries,enriched wheat flour; high fructose corn syrup; palm oil; dextrose; artificial flavor; red 40; TBHQ,Ultra-processed,18,high fructose corn syrup>date paste; palm oil>olive oil,SAMPLE row — human replaces with real labels. Obviously-ultra-processed example.
+sample-mid-01,pasted,Banana Oat Muffins,all-purpose flour; brown sugar; butter; eggs; ripe bananas; baking powder; vanilla extract,Mostly Clean,68,all-purpose flour>oat flour; brown sugar>mashed banana,SAMPLE row — human replaces with real labels. Ambiguous middle example.

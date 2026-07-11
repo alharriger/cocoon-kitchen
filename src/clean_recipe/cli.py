@@ -1,12 +1,14 @@
-"""Tiny manual-test entrypoint for the scoring core.
+"""Tiny manual-test entrypoint for the full ingest → score pipeline.
 
-Loads ``.env`` (so the provider seam is configured) and scores one pasted
-recipe, printing the Verdict as JSON. This is a dev/manual-test tool — the real
-UI is Phase 3 (Streamlit). Unlike the pure core, this entrypoint is allowed to
-load python-dotenv.
+Loads ``.env`` (so the provider seam is configured), turns input into a
+normalized recipe via ``parse_recipe`` (URL or pasted text), scores it with
+``score_recipe``, and prints the Verdict as JSON. This is a dev/manual-test tool
+— the real UI is Phase 3 (Streamlit). Unlike the pure core, this entrypoint is
+allowed to load python-dotenv.
 
 Usage:
-    .venv/bin/python -m clean_recipe.cli recipe.txt      # first line = title, rest = ingredients
+    .venv/bin/python -m clean_recipe.cli recipe.txt      # a file of pasted text
+    .venv/bin/python -m clean_recipe.cli https://site/recipe   # a recipe URL
     printf "Title\\nflour\\nsugar\\n" | .venv/bin/python -m clean_recipe.cli
 """
 from __future__ import annotations
@@ -17,28 +19,31 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-def _read(source: str) -> tuple[str, list[str]]:
-    lines = [ln.strip() for ln in source.splitlines() if ln.strip()]
-    if not lines:
-        raise SystemExit("No recipe provided. Give a title on line 1, ingredients after.")
-    return lines[0], lines[1:]
+def _resolve_source(argv: list[str]) -> str:
+    """An http(s) arg is a URL (passed through); any other arg is a file whose
+    contents are pasted text; no arg reads pasted text from stdin."""
+    if not argv:
+        return sys.stdin.read()
+    arg = argv[0]
+    if arg.startswith(("http://", "https://")):
+        return arg
+    return Path(arg).read_text(encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     load_dotenv()  # reads .env from the current working directory
 
-    if argv:
-        text = Path(argv[0]).read_text(encoding="utf-8")
-    else:
-        text = sys.stdin.read()
+    source = _resolve_source(argv)
 
-    title, ingredients = _read(text)
-
-    # Imported here so `--help`-style misuse doesn't require a configured provider.
+    # Imported here so misuse doesn't require a configured provider up front.
+    from .parse import parse_recipe
     from .score import score_recipe
 
-    verdict = score_recipe(title, ingredients)
+    recipe = parse_recipe(source)
+    verdict = score_recipe(recipe.title, recipe.ingredients)
+
+    print(f"# {recipe.title}  ({recipe.source})")
     print(verdict.model_dump_json(indent=2))
     return 0
 
