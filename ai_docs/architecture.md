@@ -38,6 +38,15 @@ cocoonkitchen/
 
 ## Decision log
 
+### 2026-07-11 — LLM provider strategy: neutral seam, free-tier-first, eval-selected
+Model access goes through a thin **OpenAI-compatible Chat Completions client** (`base_url` + `api_key` + `model` are config, not code) — no heavy provider-abstraction layer (anti-bloat). Nearly every candidate speaks this API: OpenAI, DeepSeek, Qwen, Zhipu GLM (via z.ai), Groq, Together, OpenRouter, and **Gemini via its OpenAI-compat endpoint**. Switching providers = changing env vars.
+- **v0 default: Google Gemini Flash-Lite** — genuine free tier (~1,500 req/day, no card), native strict `responseSchema`, and the cheapest paid tier ($0.10/$0.40 per 1M) if we exceed free.
+- **Free backup: Groq** (`gpt-oss-20b`, strict decoding, ~14,400 req/day, fastest inference).
+- **Cheapest reliable paid at scale: DeepSeek V4-flash** (~$0.003 cached input, 1M context). GLM-4.7/4.5-Flash on z.ai are $0 but less robust under adversarial input.
+- **Eval references, not defaults (no free tier): Claude Haiku 4.5 ($1/$5), OpenAI gpt-5.4-nano ($0.20/$1.25)** — most-trusted JSON, used to sanity-check the golden set.
+
+**Selection rule:** the model is chosen by **golden-set band-accuracy + MAE, never by brand**. The eval harness (Phase 5) compares providers on one prompt. `Verdict` Pydantic validation already fails loud → add **validate-and-retry-once** so non-strict free models are safe. **Data note:** free tiers (Gemini, OpenAI data-sharing) may train on inputs — acceptable for v0 (public recipe text, no PII); revisit if inputs ever become sensitive. **Revisit when:** an eval number favors a specific model, free-tier limits throttle testers, or real volume makes a paid tier's economics matter. Pricing/capabilities verified 2026-07-11 across OpenAI, Gemini, DeepSeek, Qwen, GLM, Groq, Together, OpenRouter, and Claude. (Supersedes the incidental "anthropic" naming in the 2026-07-10 deps entry below — provider is now config, not a fixed dependency.)
+
 ### 2026-07-10 — Python 3.12 baseline; pinned, phase-scoped deps
 `requires-python >=3.11`; Phase 1 runs on Python 3.12 (installed via Homebrew — the machine's system 3.9.6 is EOL). Deps are exact-pinned and added only when a phase uses them: Phase 1 ships `pydantic==2.10.6` + `pyyaml==6.0.2` (runtime) and `pytest==8.3.4` (dev). Streamlit / anthropic / recipe-scrapers are deferred to their phases (anti-bloat). **Revisit when:** a dep’s pin blocks a security fix, or 3.11 features are needed.
 

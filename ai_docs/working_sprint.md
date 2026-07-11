@@ -32,20 +32,21 @@
 | 8 | Phase 2 retrospective → log pitfalls → refresh this doc for Phase 3 | ⬜ Not started | |
 
 ### Definition of done (Phase 2)
-`score_recipe()` returns schema-valid Verdicts on real pasted recipes; `parse.py` handles link + wild + paste inputs; `evals/evaluate.py` runs on the sample golden rows and emits metrics; every input+verdict is logged via `log.py`; unit tests green; docs in sync; merged to main. (Model calls now need `ANTHROPIC_API_KEY` in `.env` — Phase 1 shipped `.env.example`.)
+`score_recipe()` returns schema-valid Verdicts on real pasted recipes; `parse.py` handles link + wild + paste inputs; `evals/evaluate.py` runs on the sample golden rows and emits metrics; every input+verdict is logged via `log.py`; unit tests green; docs in sync; merged to main. (Model calls need the chosen provider's key in `.env` — v0 default a free Google AI Studio / Gemini key, no card. Phase 2 updates `.env.example` from `ANTHROPIC_API_KEY` to provider-neutral keys, e.g. `LLM_API_KEY` + `LLM_BASE_URL` + `LLM_MODEL`.)
 
 ### Decisions carried in
 - `score_recipe()` stays pure/UI-agnostic in `src/clean_recipe/`; never imports Streamlit (architecture.md load-bearing rule).
-- New deps arrive only as their track needs them: `anthropic`, `recipe-scrapers` (anti-bloat; pin exact versions, log in architecture.md).
+- **LLM provider is neutral/config-driven** (see architecture.md 2026-07-11 decision): v0 default **Google Gemini Flash-Lite free tier**, Groq backup; model chosen by the eval, not brand. Track B builds `score_recipe` behind an **OpenAI-compatible client seam** (`base_url`+`api_key`+`model` from config) + **validate-and-retry-once** on malformed output. Track C's eval harness should be able to compare providers on the golden set.
+- New deps arrive only as their track needs them: an **OpenAI-compatible client (`openai`, used with per-provider `base_url`)** for Track B, `recipe-scrapers` for Track A (anti-bloat; pin exact versions, log in architecture.md).
 - Rubric weights + golden labels are human-owned placeholders; do NOT invent or edit them. Track C ships a template + sample rows only.
-- Malformed model output must fail loudly (ValidationError), never coerce.
+- Malformed model output must fail loudly (ValidationError), never coerce (retry once, then fail loud).
 
 ### Environment reminders (from Phase 1 pitfalls)
 - Import name is `clean_recipe`, NOT `cocoonkitchen` (that's only the pip name).
 - Run Python via `.venv/bin/python` (e.g. `.venv/bin/python -m pytest`); bare `python` isn't on PATH.
 
 ### Blockers
-- Model calls require `ANTHROPIC_API_KEY` (Amber to provide a `.env`). Real golden labels are not needed until Phase 5 — samples suffice for the harness skeleton.
+- Model calls require the chosen provider's API key in a `.env` (v0 default: a **free Google AI Studio / Gemini key**, no card needed; Groq as free backup). Amber to create the key(s). Real golden labels are not needed until Phase 5 — samples suffice for the harness skeleton.
 
 ### Handoff notes for next session
 - Phase 1 (scaffold, Verdict schema, placeholder rubric, JSONL logging, 15 tests) is merged to main and approved.

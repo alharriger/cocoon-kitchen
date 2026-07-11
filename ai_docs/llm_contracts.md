@@ -39,7 +39,8 @@ Machine-readable rubric: `weights`, `bands` (score cutoffs), `nova4_markers`, `r
 Built by `prompt.py` from rubric.yaml + normalized ingredients. Requirements:
 - Recipe text is **untrusted data**, not instructions. The prompt must delimit it clearly and instruct the model to ignore any instructions embedded in recipe content (prompt-injection defense).
 - Tone guardrail baked in: ingredient-processing **awareness**, never moral judgment or medical advice; non-shaming language in swaps and reasons.
-- Model tier: cheapest capable tier (start with Haiku-class); upgrade only if evals demand it.
+- Model access: **provider-neutral** via an OpenAI-compatible client (`base_url` + `api_key` + `model` = config, not code). Default the cheapest capable **structured-output** tier on a free plan for v0 testing — **v0 default: Google Gemini Flash-Lite free tier; free backup: Groq `gpt-oss-20b`.** Provider/model is chosen by the golden-set eval, **never by brand**; upgrade only if an eval number demands it. See `architecture.md` 2026-07-11 decision for the full field survey.
+- Validate every response against Contract 1 and **retry once** on malformed output (fail loud after) — this keeps cheap/free non-strict models safe.
 
 ## Contract 4: Golden-set label format
 
@@ -74,3 +75,4 @@ Target 20–50 rows spanning obviously-clean, obviously-ultra-processed, and man
 ### Change log
 - 2026-07-09 — v0.1 initial contract, from handoff plan §5. Pre-label.
 - 2026-07-10 — Phase 1: `schema.py` transcribes Contract 1 verbatim (no logic). `rubric.yaml` ships documented placeholder weights + **placeholder band cutoffs** (Clean 80–100 / Mostly Clean 60–79 / Processed 40–59 / Ultra-processed 0–39); `nova4_markers`/`refined_seed_oils`/`aliases` left empty for the human. No prompt yet. Pre-label — no eval delta.
+- 2026-07-11 — Contract 3: provider strategy set to a **neutral OpenAI-compatible seam, free-tier-first** (Gemini Flash-Lite default, Groq backup), **eval-selected** model; validate-and-retry-once discipline added. Pricing/capabilities verified across OpenAI, Gemini, DeepSeek, Qwen, GLM, Groq, Together, OpenRouter, and Claude (see `architecture.md`). Pre-label — no eval delta.
