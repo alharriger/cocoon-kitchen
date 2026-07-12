@@ -24,7 +24,8 @@ Vector DB, embeddings, RAG, accounts/auth, real database, shopping lists, meal p
 | 2 | Core engines (parallel) | parse.py · prompt.py+score.py · evaluate.py skeleton — built by parallel sub-agents, then integrated | `score_recipe()` returns valid Verdicts on real pasted recipes; harness runs on sample rows |
 | 3 | UI & end-to-end | app.py Streamlit card, paste/link toggle, logging wired | User manually tests the full flow locally |
 | 4 | Deploy & harden | Streamlit Cloud URL, security review, golden_set.csv template shipped | Shareable link works; security review clean |
-| 5 | Real evals (blocked on human) | Human rubric.yaml + 20–50 golden labels → tuning loop | Band accuracy / MAE targets the human sets |
+| 5 | Observability & Labeling Console | Internal front-end over `data/logs/*.jsonl`: browse every input + Verdict, label/correct real outputs into golden rows (Contract 4) + swap-quality grades, export to `golden_set.csv`; view eval-run results | Product owner can review real LLM outputs and produce labeled golden rows from them |
+| 6 | Real evals & tuning (blocked on human) | Human finalizes rubric.yaml weights + 20–50 golden labels (seeded from the Phase 5 console) → tuning loop + bargain-model bake-off across GLM/Gemini/Groq/DeepSeek/Qwen | Band accuracy / MAE targets the human sets |
 
 ## User stories
 
@@ -34,6 +35,7 @@ Vector DB, embeddings, RAG, accounts/auth, real database, shopping lists, meal p
 - As a home cook, I get 3 practical, non-shaming swaps with one-line reasons.
 - As the product owner, every scored recipe is logged (input + verdict) so I can audit behavior.
 - As the product owner, I can run the eval harness against the golden set and see band accuracy, score MAE, and per-component error.
+- As the product owner, I can open an **observability & labeling console** to browse real logged verdicts, correct/label them into golden rows and swap-quality grades, and export them to the golden set — so my evals are seeded from real usage, not hand-authored from scratch (Phase 5).
 
 ### Next up (post-v0, each must earn its place)
 - Rubric tuning loop with regression tracking across prompt versions.

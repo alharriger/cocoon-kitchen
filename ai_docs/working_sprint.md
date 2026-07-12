@@ -58,4 +58,6 @@
 - **Phase 2 — Core Engines** ✅ (2026-07-11): `parse.py` (paste/URL, pinned-IP SSRF guard); provider-neutral `client.py`/`prompt.py`/`score.py` (GLM-4.5-Flash dev default, thinking disabled via `LLM_EXTRA_BODY`, code-composed score+band, retry-once); `evals/evaluate.py` + golden template (band accuracy + score MAE, `--model` bake-off); `cli.py`. 77 tests. Merge gates clean (security-review fixed a DNS-rebinding TOCTOU; code-review fixed a sub-score bounds gap; `/verify` real GLM end-to-end). Amber manually verified. Retro pitfalls logged: GLM unbounded-thinking (disable, don't raise tokens), z.ai base URL, schema range enforcement.
 
 ## Queued next: Phase 4 — Deploy & Harden
-Streamlit Cloud URL, security review, ship `golden_set.csv` template. Exit gate: shareable link works; security review clean. (Phase 5 = real human rubric weights + 20–50 golden labels → tuning loop + the provider bake-off across the bargain models.)
+Streamlit Cloud URL, security review, ship `golden_set.csv` template. Exit gate: shareable link works; security review clean.
+
+Then: **Phase 5 — Observability & Labeling Console** (thin JSONL/CSV front-end to browse logged verdicts and label them into golden rows; seeds the evals) → **Phase 6 — Real evals & tuning** (human rubric weights + golden labels → tuning loop + bargain-model bake-off). See `cocoonkitchen_product.md` roadmap + `architecture.md` 2026-07-11 decision.

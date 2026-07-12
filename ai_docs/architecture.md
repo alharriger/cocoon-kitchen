@@ -38,6 +38,12 @@ cocoonkitchen/
 
 ## Decision log
 
+### 2026-07-11 — Observability & Labeling Console added to scope (Phase 5)
+Amber added an observability + eval-labeling front-end: browse `data/logs/*.jsonl` (every input + Verdict), correct/label real outputs into Contract-4 golden rows + swap-quality grades, export to `golden_set.csv`, and view `evals/results/`.
+- **Placement:** new **Phase 5**, *before* Real evals & tuning (now **Phase 6**) — it's the tool that seeds the golden set from real usage, so it precedes the tuning loop. Scheduled after Phase 4 (deploy) so there's real traffic to observe/label. Its dependencies (`log.py`, the Contract-4 golden format, `evaluate.py`) already exist, so it *could* start earlier against self-generated logs if we choose.
+- **Anti-bloat guardrail:** it stays a **thin JSONL/CSV front-end** — reads the append-only log, writes golden rows to CSV. **No DB, no auth, no vector store** unless an eval number (or a public deployment of the console) demands it. Likely shape: a separate Streamlit page (`pages/`), distinct from the user-facing scorer.
+- **Security note for when we build it:** the console exposes *all* logged recipes/verdicts, so a public deployment must be access-gated; local/internal use needs none. Full plan when it's time to build (per Amber). **Revisit when:** label volume outgrows CSV, or the console is exposed beyond the product owner.
+
 ### 2026-07-11 — Phase 2 core-engine decisions
 - **Composite score & band are computed in code, not by the model.** `score.py` weights the model's six sub-scores by `rubric.yaml` and looks up the band cutoff. The human-owned weights stay authoritative and the roll-up is deterministic; the model only judges the six 0–100 sub-scores (higher = cleaner). **Revisit when:** an eval shows a model-produced holistic score beats the computed composite.
 - **`parse.py` fetches URLs behind a pinned-IP SSRF guard.** Resolve + validate once, then connect to that exact IP while presenting the hostname for the Host header, TLS SNI, and cert verification — closing the DNS-rebinding TOCTOU (found in the Phase 2 security review). Timeout + 2 MiB cap + per-hop redirect revalidation. Paste remains the primary, network-free path (non-goal: scraper heroics).
