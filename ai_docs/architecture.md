@@ -38,10 +38,10 @@ cocoonkitchen/
 
 ## Decision log
 
-### 2026-07-11 — Observability & Labeling Console = the golden-set builder (Phase 5)
+### 2026-07-11 — Observability & Labeling Console = the golden-set builder (Phase 4, before deploy)
 Amber added an observability + eval-labeling front-end that is **also the tool used to create the golden set**. Two modes: **author** (paste a recipe, optionally pre-score, set target band/score/swaps/notes → a Contract-4 golden row — needs no prior logs) and **label-from-log** (browse `data/logs/*.jsonl`, correct real Verdicts into golden rows + swap-quality grades). Exports to `golden_set.csv`; views `evals/results/`.
-- **Placement:** new **Phase 5**, *before* Real evals & tuning (now **Phase 6**) — the golden set is a hard gate for evals/bake-off, and this console is how it's built, so it must precede Phase 6. The golden set is the **human long-pole** on the critical path.
-- **Sequencing is open (author mode needs no real traffic):** because author mode works with zero logs, the console is NOT blocked by deploy (Phase 4). It could run before deploy — even right after the Phase 3 scorer UI — so Amber can start labeling the 20–50 rows early while deploy proceeds. Its code deps (`log.py`, Contract-4 format, `evaluate.py`) already exist. **Order of Phase 4 (deploy) vs Phase 5 (console) is Amber's call** — pending confirmation.
+- **Placement (decided 2026-07-11):** **Phase 4 — before deploy (now Phase 5)** and before Real evals & tuning (Phase 6). Rationale: the golden set is a hard gate for evals/bake-off and the **human long-pole** on the critical path; author mode needs no live traffic, so it isn't blocked by deploy. Amber starts labeling the 20–50 rows right after the Phase 3 scorer UI (from own usage + author mode) while deploy waits. Code deps (`log.py`, Contract-4 format, `evaluate.py`) already exist.
+- Order sequence is now: 3 scorer → **4 console/goldens** → 5 deploy → 6 evals.
 - **Anti-bloat guardrail:** it stays a **thin JSONL/CSV front-end** — reads the append-only log, writes golden rows to CSV. **No DB, no auth, no vector store** unless an eval number (or a public deployment of the console) demands it. Likely shape: a separate Streamlit page (`pages/`), distinct from the user-facing scorer.
 - **Security note for when we build it:** the console exposes *all* logged recipes/verdicts, so a public deployment must be access-gated; local/internal use needs none. Full plan when it's time to build (per Amber). **Revisit when:** label volume outgrows CSV, or the console is exposed beyond the product owner.
 

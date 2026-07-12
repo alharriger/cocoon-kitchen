@@ -23,9 +23,9 @@ Vector DB, embeddings, RAG, accounts/auth, real database, shopping lists, meal p
 | 1 | Scaffold, schemas & logging | Repo layout, deps, schema.py, placeholder rubric.yaml, log.py, tests | Manual review; unit tests green |
 | 2 | Core engines (parallel) | parse.py · prompt.py+score.py · evaluate.py skeleton — built by parallel sub-agents, then integrated | `score_recipe()` returns valid Verdicts on real pasted recipes; harness runs on sample rows |
 | 3 | UI & end-to-end | app.py Streamlit card, paste/link toggle, logging wired | User manually tests the full flow locally |
-| 4 | Deploy & harden | Streamlit Cloud URL, security review, golden_set.csv template shipped | Shareable link works; security review clean |
-| 5 | Observability & Labeling Console (**golden-set builder**) | Lightweight internal front-end, two modes: (a) **author** — paste/enter a recipe, optionally pre-score to pre-fill, then set target_band/target_score/expected_swaps/notes → a Contract-4 golden row (works with zero prior logs); (b) **label-from-log** — browse `data/logs/*.jsonl`, correct/confirm real Verdicts into golden rows + swap-quality grades. Exports to `golden_set.csv`; views `evals/results/`. **This is the tool used to create the golden set.** | The 20–50-row golden set exists (spanning clean / ultra-processed / ambiguous), authored via the console |
-| 6 | Real evals & tuning (blocked on human golden set) | Human finalizes rubric.yaml weights + the golden set from Phase 5 → tuning loop + bargain-model bake-off across GLM/Gemini/Groq/DeepSeek/Qwen | Band accuracy / MAE targets the human sets |
+| 4 | Observability & Labeling Console (**golden-set builder**) | Lightweight internal front-end, two modes: (a) **author** — paste/enter a recipe, optionally pre-score to pre-fill, then set target_band/target_score/expected_swaps/notes → a Contract-4 golden row (works with zero prior logs); (b) **label-from-log** — browse `data/logs/*.jsonl`, correct/confirm real Verdicts into golden rows + swap-quality grades. Exports to `golden_set.csv`; views `evals/results/`. **This is the tool used to create the golden set.** | The 20–50-row golden set exists (spanning clean / ultra-processed / ambiguous), authored via the console |
+| 5 | Deploy & harden | Streamlit Cloud URL, security review, golden_set.csv template shipped | Shareable link works; security review clean |
+| 6 | Real evals & tuning (blocked on human golden set) | Human finalizes rubric.yaml weights + the golden set from Phase 4 → tuning loop + bargain-model bake-off across GLM/Gemini/Groq/DeepSeek/Qwen | Band accuracy / MAE targets the human sets |
 
 ## User stories
 
@@ -35,7 +35,7 @@ Vector DB, embeddings, RAG, accounts/auth, real database, shopping lists, meal p
 - As a home cook, I get 3 practical, non-shaming swaps with one-line reasons.
 - As the product owner, every scored recipe is logged (input + verdict) so I can audit behavior.
 - As the product owner, I can run the eval harness against the golden set and see band accuracy, score MAE, and per-component error.
-- As the product owner, I can open an **observability & labeling console** to (a) author golden rows from a recipe directly and (b) correct/label real logged verdicts into golden rows + swap-quality grades, exporting to `golden_set.csv` — this is how I build the 20–50-row golden set the evals need (Phase 5).
+- As the product owner, I can open an **observability & labeling console** to (a) author golden rows from a recipe directly and (b) correct/label real logged verdicts into golden rows + swap-quality grades, exporting to `golden_set.csv` — this is how I build the 20–50-row golden set the evals need (Phase 4).
 
 ### Next up (post-v0, each must earn its place)
 - Rubric tuning loop with regression tracking across prompt versions.
