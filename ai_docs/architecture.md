@@ -80,3 +80,19 @@ CLAUDE.md = pointers only. ai_docs/ = source of truth per domain. working_sprint
 - **Phase planning:** Plan / code-architect agent produces the blueprint; main session edits + presents for approval.
 - **Parallel build (Phase 2):** independent tracks (parser / scoring core / eval harness) as parallel agents in isolated worktrees, integrated on one branch afterward.
 - **Quality gates:** code-reviewer agent + /security-review before any merge to main; /verify (end-to-end) before commit.
+
+### When to fan out *implementation* across agents (decision rule, added 2026-07-12)
+We already fan out for **research** (Explore), **planning** (Plan), and **review** (code-review's finder angles, security-review's parallel false-positive checks). The open question was implementation. Rule: **fan out implementation only when the approved plan decomposes into ≥2 genuinely independent build tracks** — separate modules with clean interfaces and little shared-file overlap (Phase 2: parser / scoring / eval). Otherwise build in the main session.
+- **Why Phase 3 was solo (correct call):** `app.py` is one cohesive ~200-line artifact — render helpers, error handling, and session state are tightly coupled, and the follow-on work (direnv, `is_recipe`) was interactive, feedback-driven iteration. Splitting it would add coordination/merge cost exceeding any parallelism gain. Small, cohesive, or conversation-driven work stays single-threaded.
+- **Where it pays off next:** **Phase 6 bake-off** (each model's eval run is independent → one agent per provider) is the strongest fan-out candidate; **Phase 4 console** is likely 1–2 tracks (author mode / label-from-log) — fan out only if the plan shows them cleanly separable.
+
+**Guardrails — 0 data loss (non-negotiable):**
+- **Worktree isolation:** parallel implementation agents each run in their own git worktree (`isolation: "worktree"`) so they never write the same working tree — no clobbering. Integrate onto the phase branch afterward.
+- **Branch + checkpoint:** agents work on the phase branch / worktree, never on a dirty `main`; commit checkpoints so no work is stranded uncommitted.
+- **Capture, don't discard:** each agent returns a structured summary to the orchestrator (workflow journal / schema outputs); decisions and handoffs land in `working_sprint.md` — the existing cross-session 0-data-loss mechanism.
+- **No agent lands to main:** integration is an explicit main-session step; the merge gates (/verify + code-review + /security-review) run on the integrated diff, once.
+
+**Guardrails — trustworthy style:**
+- Agents implement **after** the plan is human-approved; they never make architectural/rubric decisions (those stay in the plan→approval loop and are human-owned).
+- Every agent's output passes the **same** merge gates as hand-written code before merge to main — parallelism changes who types, not the quality bar.
+- Multi-agent orchestration (Workflow/ultracode) is **billed + opt-in**: it's a deliberate per-phase choice made at planning time, noted in the phase plan, not a silent default.

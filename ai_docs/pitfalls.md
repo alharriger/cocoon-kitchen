@@ -37,6 +37,12 @@ Every mistake gets logged here during the retrospective (or immediately, if it b
 **Prevention rule:** For deterministic scoring/classification, **disable thinking**, don't chase it with tokens. GLM: `LLM_EXTRA_BODY={"thinking":{"type":"disabled"}}` (thinking-off → `finish=stop`, ~208 completion tokens, valid JSON, reliable even at max_tokens=800). The seam passes `LLM_EXTRA_BODY` (provider-specific JSON) via `extra_body`. Bake-off models with their own reasoning modes need the same treatment; leave `LLM_EXTRA_BODY` blank for models without a toggle and rely on generous max_tokens + validate-retry-once there.
 **Status:** Active
 
+### 2026-07-12 — A model-I/O contract change must ripple to every shape-dependent site
+**What happened:** Adding the required `is_recipe` field to `ModelOutput` (Phase 3) left three dependent sites stale, all caught in code review: (1) the retry `_REPAIR_HINT` still told the model to return the *old* shape (no `is_recipe`), so a compliant retry would fail validation — silently defeating retry-once; (2) making `swaps`/`flagged_ingredients` optional to fit the non-recipe case narrowed validation for the recipe case (a recipe missing `swaps` no longer failed loud); (3) `evaluate.run_eval` didn't handle the new `NotARecipeError`, so one row could abort a whole bake-off.
+**Root cause:** A change to the model-output contract (`schema`/prompt shape) has a blast radius: the retry/repair hint that restates the shape, every `except` that handles `score_recipe`'s raises, and any constraint relaxed "just for the new branch." Editing the model class in isolation looks complete but isn't.
+**Prevention rule:** When you change the model-I/O contract, in the SAME change walk the whole blast radius: (a) update every prompt/hint that restates the shape (system prompt AND `_REPAIR_HINT`); (b) update every caller's exception handling for new raise types (`app.py`, `cli.py`, `evaluate.py`); (c) if you relax a constraint for one branch, add a branch-specific validator so the other branch keeps its original guarantee (don't let `Optional` silently weaken the happy path); (d) log the change in `llm_contracts.md`. A quick `grep` for the changed symbol + the function name across `src/`, `app.py`, `evals/` surfaces the sites.
+**Status:** Active
+
 ### 2026-07-10 — Bare `python` is not on PATH
 **What happened:** `python` and `python -m pytest` fail (`command not found`); system `python3` is EOL 3.9.6 without pytest.
 **Root cause:** This machine has no `python` shim; the working interpreter is the project venv.
