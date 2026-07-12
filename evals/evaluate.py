@@ -23,13 +23,14 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-from clean_recipe.score import score_recipe
+from clean_recipe.score import NotARecipeError, ScoringError, score_recipe
 
 # Exact Contract 4 columns, in order. The golden CSV must match this verbatim.
 GOLDEN_COLUMNS = [
@@ -144,10 +145,23 @@ def score_mae(results: list[ResultRow]) -> float:
 
 
 def run_eval(golden: list[GoldenRow], model: str | None) -> list[ResultRow]:
-    """Score every golden row and collect target-vs-prediction results."""
+    """Score every golden row and collect target-vs-prediction results.
+
+    A single row that fails to score (the model rejects it as not-a-recipe, or
+    can't produce a valid Verdict after retry) is warned and skipped — one flaky
+    judgment must not abort a whole bake-off run. Skipped rows are excluded from
+    the metrics; the warning names them so the human can investigate.
+    """
     results: list[ResultRow] = []
     for row in golden:
-        verdict = score_recipe(row.title, row.ingredients, model=model, log=False)
+        try:
+            verdict = score_recipe(row.title, row.ingredients, model=model, log=False)
+        except (NotARecipeError, ScoringError) as e:
+            print(
+                f"  ! skipping {row.recipe_id or row.title!r}: {type(e).__name__}: {e}",
+                file=sys.stderr,
+            )
+            continue
         results.append(
             ResultRow(
                 recipe_id=row.recipe_id,

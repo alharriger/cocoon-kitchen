@@ -37,11 +37,18 @@ def main(argv: list[str] | None = None) -> int:
     source = _resolve_source(argv)
 
     # Imported here so misuse doesn't require a configured provider up front.
-    from .parse import parse_recipe
-    from .score import score_recipe
+    from .parse import ParseError, parse_recipe
+    from .score import NotARecipeError, score_recipe
 
-    recipe = parse_recipe(source)
-    verdict = score_recipe(recipe.title, recipe.ingredients)
+    # Unusable input (bad/unparseable source, or judged not-a-recipe) is a clean
+    # one-liner, not a traceback. Genuine failures (ScoringError, config errors)
+    # still propagate so a dev sees the stack.
+    try:
+        recipe = parse_recipe(source)
+        verdict = score_recipe(recipe.title, recipe.ingredients)
+    except (ParseError, NotARecipeError) as e:
+        print(f"not scored: {e}", file=sys.stderr)
+        return 2
 
     print(f"# {recipe.title}  ({recipe.source})")
     print(verdict.model_dump_json(indent=2))

@@ -6,6 +6,7 @@ load-bearing rule). It never imports Streamlit. The flow:
 1. Build the prompt from the rubric + recipe (prompt.py).
 2. Call the model in JSON mode (client.py) — provider is env config.
 3. Validate the model's JSON into ``ModelOutput`` (fail loud, no coercion).
+   If the model judged the input isn't a recipe, raise ``NotARecipeError``.
 4. Compose the composite ``score`` and ``band`` from the rubric weights/cutoffs
    — the arithmetic is deterministic and lives in code, not the model, so the
    human-owned weights in rubric.yaml stay authoritative.
@@ -19,7 +20,7 @@ from __future__ import annotations
 
 import json
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, model_validator
 
 from .client import complete_json
 from .log import log_verdict
@@ -28,15 +29,46 @@ from .schema import Band, SubScores, Swap, Verdict
 
 
 class ModelOutput(BaseModel):
-    """The partial the model is asked to return; ``score``/``band`` are computed."""
+    """The partial the model returns; ``score``/``band`` are computed.
 
-    sub_scores: SubScores
-    flagged_ingredients: list[str]
-    swaps: list[Swap]
+    ``is_recipe`` gates scoring: when the model judges the input is not a recipe
+    it returns ``is_recipe=false`` and omits the scoring fields. For a real recipe
+    the scoring fields are required — the validator below fails loud otherwise, so
+    a recipe that comes back without sub-scores hits the malformed/retry path
+    rather than silently yielding an empty card.
+    """
+
+    is_recipe: bool
+    # None (field absent) vs [] (present-but-empty) must stay distinguishable:
+    # for a real recipe every scoring field must be *present* (a clean recipe may
+    # still send flagged_ingredients: []), so the model omitting one fails loud
+    # rather than defaulting to an empty card. Non-recipe output omits them all.
+    sub_scores: SubScores | None = None
+    flagged_ingredients: list[str] | None = None
+    swaps: list[Swap] | None = None
+
+    @model_validator(mode="after")
+    def _recipe_has_scores(self) -> "ModelOutput":
+        if self.is_recipe and (
+            self.sub_scores is None
+            or self.flagged_ingredients is None
+            or self.swaps is None
+        ):
+            raise ValueError("is_recipe is true but scoring fields are missing")
+        return self
 
 
 class ScoringError(RuntimeError):
     """Raised when the model output can't be parsed into a valid Verdict."""
+
+
+class NotARecipeError(ValueError):
+    """Raised when the input isn't a recipe.
+
+    This is a *valid, final* judgment (the model decided the text is not a food
+    recipe), not malformed output — so unlike ScoringError it is never retried.
+    The caller (UI/CLI) turns it into a friendly "that's not a recipe" message.
+    """
 
 
 def _parse(raw: str) -> ModelOutput:
@@ -73,6 +105,10 @@ def derive_band(score: int, bands: dict[str, list[int]]) -> Band:
 
 
 def _build_verdict(output: ModelOutput, rubric: dict) -> Verdict:
+    # All three guaranteed non-None here: is_recipe gate + ModelOutput validator.
+    assert output.sub_scores is not None
+    assert output.flagged_ingredients is not None
+    assert output.swaps is not None
     score = compose_score(output.sub_scores, rubric["weights"])
     band = derive_band(score, rubric["bands"])
     return Verdict(
@@ -88,9 +124,10 @@ _REPAIR_HINT = {
     "role": "user",
     "content": (
         "Your previous reply was not valid JSON in the required shape. Reply "
-        "again with ONLY the JSON object — keys sub_scores (the six named "
-        "0–100 integers), flagged_ingredients (list), and swaps (exactly three "
-        "objects with from_ingredient, to_ingredient, reason). No prose."
+        "again with ONLY the JSON object. Always include is_recipe (boolean); "
+        "when is_recipe is true also include sub_scores (the six named 0–100 "
+        "integers), flagged_ingredients (list), and swaps (exactly three objects "
+        "with from_ingredient, to_ingredient, reason). No prose."
     ),
 }
 
@@ -120,6 +157,13 @@ def score_recipe(
         # safety net for providers whose thinking can't be fully disabled.
         raw = complete_json(messages + [_REPAIR_HINT], model=model, max_tokens=4096)
         output = _parse(raw)
+
+    if not output.is_recipe:
+        # A valid, final judgment — not malformed output, so never retried.
+        raise NotARecipeError(
+            "That doesn't look like a recipe. Paste a dish with its ingredients — "
+            "a title line, then one ingredient per line."
+        )
 
     verdict = _build_verdict(output, rubric)
     if log:

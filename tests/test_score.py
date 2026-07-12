@@ -9,6 +9,7 @@ from clean_recipe import score as score_mod
 from clean_recipe.prompt import load_rubric
 from clean_recipe.schema import SubScores, Verdict
 from clean_recipe.score import (
+    NotARecipeError,
     ScoringError,
     compose_score,
     derive_band,
@@ -20,6 +21,7 @@ RUBRIC = load_rubric()
 
 def model_output(**overrides) -> dict:
     payload = {
+        "is_recipe": True,
         "sub_scores": {
             "ultra_processing": 70,
             "added_sugar": 80,
@@ -116,6 +118,55 @@ def test_out_of_range_subscore_fails_loud_not_clamped(monkeypatch):
     monkeypatch.setattr(score_mod, "complete_json", lambda *a, **k: json.dumps(bad))
     with pytest.raises(ScoringError):
         score_recipe("Cookies", ["butter"], log=False)
+
+
+def test_not_a_recipe_raises_and_is_not_retried(monkeypatch):
+    calls = {"n": 0}
+
+    def not_recipe(*a, **k):
+        calls["n"] += 1
+        return json.dumps({"is_recipe": False})
+
+    monkeypatch.setattr(score_mod, "complete_json", not_recipe)
+    with pytest.raises(NotARecipeError):
+        score_recipe("Job Posting", ["turkey sausage", "unlimited PTO"], log=False)
+    assert calls["n"] == 1  # a valid judgment — no retry
+
+
+def test_not_a_recipe_is_not_logged(monkeypatch):
+    monkeypatch.setattr(score_mod, "complete_json",
+                        lambda *a, **k: json.dumps({"is_recipe": False}))
+    logged = {"n": 0}
+    monkeypatch.setattr(score_mod, "log_verdict",
+                        lambda *a, **k: logged.__setitem__("n", logged["n"] + 1))
+    with pytest.raises(NotARecipeError):
+        score_recipe("Not food", ["lorem ipsum"], log=True)
+    assert logged["n"] == 0  # no verdict → nothing to log
+
+
+def test_recipe_true_without_subscores_is_malformed(monkeypatch):
+    # is_recipe true but no sub_scores → fail loud (retry-once, then ScoringError),
+    # never a silent empty card.
+    monkeypatch.setattr(score_mod, "complete_json",
+                        lambda *a, **k: json.dumps({"is_recipe": True}))
+    with pytest.raises(ScoringError):
+        score_recipe("Cookies", ["butter"], log=False)
+
+
+def test_recipe_missing_swaps_is_malformed(monkeypatch):
+    # A recipe response that omits the swaps key must fail loud (not default to an
+    # empty "Swaps to try" card) — the scoring fields are required when is_recipe.
+    bad = model_output()
+    del bad["swaps"]
+    monkeypatch.setattr(score_mod, "complete_json", lambda *a, **k: json.dumps(bad))
+    with pytest.raises(ScoringError):
+        score_recipe("Cookies", ["butter"], log=False)
+
+
+def test_repair_hint_mentions_is_recipe():
+    # The corrective retry must ask for is_recipe; otherwise a compliant retry
+    # omits the now-required field and validation fails, defeating retry-once.
+    assert "is_recipe" in score_mod._REPAIR_HINT["content"]
 
 
 def test_logs_when_enabled(monkeypatch):

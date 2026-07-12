@@ -157,6 +157,31 @@ def test_run_eval_and_write_results(monkeypatch, tmp_path):
     assert written[1]["abs_error"] == "80"
 
 
+def test_run_eval_skips_failing_row_without_aborting(monkeypatch, capsys):
+    from clean_recipe.score import NotARecipeError
+
+    golden = [
+        evaluate.GoldenRow(recipe_id="g1", title="Clean Bowl",
+                           ingredients=["spinach"], target_band="Clean", target_score=90),
+        evaluate.GoldenRow(recipe_id="bad", title="Not Food",
+                           ingredients=["lorem"], target_band="Clean", target_score=90),
+        evaluate.GoldenRow(recipe_id="g3", title="Also Clean",
+                           ingredients=["kale"], target_band="Clean", target_score=90),
+    ]
+
+    def flaky(title, ingredients, **k):
+        if title == "Not Food":
+            raise NotARecipeError("nope")
+        return canned_verdict(90, "Clean")
+
+    monkeypatch.setattr(evaluate, "score_recipe", flaky)
+
+    results = evaluate.run_eval(golden, model="fake-model")
+    # The bad row is skipped, not fatal — the other two still score.
+    assert [r.recipe_id for r in results] == ["g1", "g3"]
+    assert "skipping 'bad'" in capsys.readouterr().err
+
+
 def test_main_smoke(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
     monkeypatch.setattr(evaluate, "RESULTS_DIR", tmp_path / "results")

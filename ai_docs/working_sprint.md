@@ -17,12 +17,12 @@
 ### Tasks
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1 | Write detailed Phase 3 plan + security audit; get Amber's approval | ⬜ Not started | **← start here.** Cover: input handling, error/empty states, no secrets in UI, untrusted paste/URL already handled by parse.py |
-| 2 | Add `streamlit` (pinned) to `pyproject.toml`; `app.py` scaffold | ⬜ Not started | streamlit entrypoint loads `.env` (dotenv), like cli.py |
-| 3 | `app.py`: paste/link toggle → `parse_recipe` → `score_recipe` → render Verdict card | ⬜ Not started | card = score, band, six sub-scores, flagged list, 3 swaps |
-| 4 | Error/empty states: parse failure → paste-fallback message; ScoringError → friendly message; loading spinner | ⬜ Not started | never dump a traceback at the user |
-| 5 | Design/tone pass per `design_system.md` (awareness not shaming; band styling) | ⬜ Not started | |
-| 6 | Pause for Amber's manual test (`streamlit run app.py`; paste + link) | ⬜ Not started | full local flow |
+| 1 | Write detailed Phase 3 plan + security audit; get Amber's approval | ✅ Done | Approved 2026-07-11 (plan-mode approval). Security audit in plan: XSS-via-markdown is the one new UI risk — untrusted strings md-escaped; `unsafe_allow_html` only for the schema-validated band pill |
+| 2 | Add `streamlit` (pinned) to `pyproject.toml`; `app.py` scaffold | ✅ Done | `streamlit==1.59.1`; `app.py` loads `.env` (dotenv), like cli.py |
+| 3 | `app.py`: paste/link toggle → `parse_recipe` → `score_recipe` → render Verdict card | ✅ Done | two tabs; card = score + band pill, six weight-ordered bars, flagged list, 3 swaps, disclaimer; result kept in `st.session_state` |
+| 4 | Error/empty states: parse failure → paste-fallback message; ScoringError → friendly message; loading spinner | ✅ Done | ParseError→warning (messages already say "paste instead"); ScoringError/config/unexpected→friendly error + collapsed details expander; never a traceback. 9 AppTest tests (mocked core), suite 86 green |
+| 5 | Design/tone pass per `design_system.md` (awareness not shaming; band styling) | ✅ Done | band hexes logged in design_system.md; band name always written next to color |
+| 6 | Pause for Amber's manual test (`streamlit run app.py`; paste + link) | 🔄 In progress | Amber testing. Feedback so far: (a) `streamlit` not on PATH → fixed with direnv `.envrc` (bare `python`/`streamlit` now work in-project; see README). (b) non-recipe input (job posting) was scored → added two-layer `is_recipe` validation (parse prose-guard + model gate → `NotARecipeError` → friendly message). 92 tests green. Docs synced (llm_contracts Contract 3, architecture 2026-07-12). |
 | 7 | Merge gates: `/verify` + code-review sub-agent + `/security-review`; merge to main | ⬜ Not started | |
 | 8 | Phase 3 retrospective → log pitfalls → refresh this doc for Phase 4 | ⬜ Not started | |
 
@@ -60,4 +60,4 @@
 ## Queued next: Phase 4 — Observability & Labeling Console (golden-set builder)
 Decided 2026-07-11 (console before deploy): a lightweight internal front-end — **author mode** (recipe → Contract-4 golden row, no logs needed) + **label-from-log mode** (correct logged verdicts into golden rows + swap-quality grades), exporting to `golden_set.csv`. This is how Amber builds the 20–50-row golden set — the human long-pole that gates the evals. Thin JSONL/CSV front-end, no DB/auth until an eval number or public deployment demands it.
 
-Then: **Phase 5 — Deploy & Harden** (Streamlit Cloud URL, security review) → **Phase 6 — Real evals & tuning** (human rubric weights + the golden set → tuning loop + bargain-model bake-off across GLM/Gemini/Groq/DeepSeek/Qwen). See `cocoonkitchen_product.md` roadmap + `architecture.md` 2026-07-11 decisions.
+Then: **Phase 5 — Deploy & Harden** (Streamlit Cloud URL, security review) → **Phase 6 — Real evals & tuning** (human rubric weights + the golden set → tuning loop + bargain-model bake-off across GLM/Gemini/Groq/DeepSeek/Qwen) → **Phase 7 — Verdict explainability & trust** (recipe context + per-ingredient/sub-score rationale on the card; after Phase 6 so we only justify a validated score — added 2026-07-12 per Amber). See `cocoonkitchen_product.md` roadmap + `architecture.md` 2026-07-11 decisions.

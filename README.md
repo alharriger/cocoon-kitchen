@@ -7,10 +7,11 @@ score, band, flagged ingredients, and 3 swaps. Streamlit UI + eval harness, both
 importing one pure core: `score_recipe(title, ingredients) -> Verdict`.
 
 ## Status
-Phase 1 — scaffold, schemas & logging. No parsing, model calls, or UI yet.
+Phase 3 — local Streamlit UI on top of the core engines (parse → score → Verdict card). Not deployed yet.
 
 ## Layout
-- `src/clean_recipe/` — pure, UI-agnostic core (`schema.py`, `log.py`; more in later phases)
+- `app.py` — Streamlit UI (thin consumer of the core)
+- `src/clean_recipe/` — pure, UI-agnostic core (`parse.py`, `score.py`, `schema.py`, `log.py`, …)
 - `rubric/` — `rubric.yaml` (machine) + `rubric.md` (human). **Human-owned; placeholder weights.**
 - `evals/` — golden set + eval harness (later phases)
 - `data/logs/` — runtime JSONL (gitignored)
@@ -22,5 +23,22 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ```
+
+## Run the app
+```bash
+cp .env.example .env       # add your LLM key (dev default: z.ai GLM-4.5-Flash)
+streamlit run app.py       # opens at http://localhost:8501
+```
+
+This repo ships a direnv `.envrc` that auto-activates `.venv` when you `cd` in, so
+bare `python`, `pytest`, and `streamlit` resolve to the venv. First-time setup:
+```bash
+brew install direnv                          # once, machine-wide
+eval "$(direnv hook bash)"                    # add to ~/.bashrc (zsh: ~/.zshrc)
+direnv allow                                  # trust this repo's .envrc, once
+```
+Without direnv, prefix the venv explicitly: `.venv/bin/streamlit run app.py`,
+`.venv/bin/python -m pytest`. (direnv only activates *interactive* shells; scripts
+and CI should use the explicit `.venv/bin/...` paths.)
 
 See `CLAUDE.md` and `ai_docs/` for the working process and contracts.
