@@ -43,6 +43,12 @@ Every mistake gets logged here during the retrospective (or immediately, if it b
 **Prevention rule:** When you change the model-I/O contract, in the SAME change walk the whole blast radius: (a) update every prompt/hint that restates the shape (system prompt AND `_REPAIR_HINT`); (b) update every caller's exception handling for new raise types (`app.py`, `cli.py`, `evaluate.py`); (c) if you relax a constraint for one branch, add a branch-specific validator so the other branch keeps its original guarantee (don't let `Optional` silently weaken the happy path); (d) log the change in `llm_contracts.md`. A quick `grep` for the changed symbol + the function name across `src/`, `app.py`, `evals/` surfaces the sites.
 **Status:** Active
 
+### 2026-07-12 — Unpinned transitive deps can segfault: pin what Streamlit pulls in
+**What happened:** The console's AppTest suite segfaulted (hard interpreter crash, not a test failure) on nearly every full run, inside `st.dataframe` → pyarrow's DataFrame→Arrow serialization in Streamlit's script thread. The project pins direct deps exactly, but `pandas`/`pyarrow` arrived transitively via streamlit, unpinned, and resolved to brand-new majors (pandas 3.0.3, pyarrow 25.0.0). First hypothesis (pandas 3's arrow-backed strings) was wrong — pinning `pandas==2.3.3` still crashed; the culprit was pyarrow 25.0.0 itself, and `pyarrow==21.0.0` fixed it (3× clean full-suite runs).
+**Root cause:** "Exact-pinned deps" only covered *direct* dependencies; transitive ones float to whatever's newest at install time, including days-old majors with native-code bugs. And a segfault that passes in isolation but dies on full runs looks like test flakiness when it's really a native library bug.
+**Prevention rule:** When a heavy framework (streamlit) pulls native-code deps (pyarrow, pandas, numpy), pin the load-bearing ones explicitly in pyproject once they're actually exercised (st.dataframe ⇒ pyarrow). On any interpreter-level crash (`Fatal Python error`), read the "Current thread" stack to find the native library, and test the fix by rerunning the FULL suite several times — single-test passes prove nothing about thread/state-dependent native crashes.
+**Status:** Active
+
 ### 2026-07-10 — Bare `python` is not on PATH
 **What happened:** `python` and `python -m pytest` fail (`command not found`); system `python3` is EOL 3.9.6 without pytest.
 **Root cause:** This machine has no `python` shim; the working interpreter is the project venv.

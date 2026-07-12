@@ -1,19 +1,23 @@
 """Eval harness: run the golden set through ``score_recipe`` and score it.
 
 Source of truth: ai_docs/llm_contracts.md — "Contract 4: Golden-set label
-format" (the CSV columns this harness reads) and "Eval harness metrics" (the
-numbers it computes). The golden labels and rubric weights are **human-owned**:
-this file only consumes labels, it never invents or edits them.
+format" (the row shape lives in ``clean_recipe.golden``, shared with the
+labeling console) and "Eval harness metrics" (the numbers this file computes).
+The golden labels and rubric weights are **human-owned**: this file only
+consumes labels, it never invents or edits them.
 
 Metrics implemented here are exactly the two the golden columns support today:
 - **Band accuracy** — % of rows where ``verdict.band == target_band``.
 - **Score MAE** — mean absolute error of ``verdict.score`` vs ``int(target_score)``.
 
-Deliberately deferred (the golden set has no columns for them yet, so computing
-them would be fabrication):
+The ``swap_quality`` column (Contract 4 v0.2 — Amber's manual 1–5 grade of the
+model's swaps) is summarized informationally (rows graded + mean); it grades
+previously-seen swaps, so it is NOT a per-model metric for the bake-off.
+
+Deliberately deferred (no golden columns / no automation yet):
 - **Per-component MAE** — needs per-sub-score targets that Contract 4 does not
   define. Left as a TODO placeholder below.
-- **Swap quality** — a future manual 1–5 human grade / LLM-as-judge. TODO.
+- **Swap quality as an eval metric** — LLM-as-judge automation is Phase 6. TODO.
 
 Malformed golden rows fail loud (Contract 4 is a hard contract), matching the
 fail-loud discipline in score.py.
@@ -30,34 +34,20 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Contract 4 shape — single source of truth shared with console.py. Re-exported
+# names (GOLDEN_COLUMNS, GoldenRow, load_golden, parse_ingredients) keep this
+# module the harness-side entry point for the golden set.
+from clean_recipe.golden import (  # noqa: F401  (re-exports)
+    GOLDEN_COLUMNS,
+    GoldenRow,
+    load_golden,
+    parse_ingredients,
+)
 from clean_recipe.score import NotARecipeError, ScoringError, score_recipe
-
-# Exact Contract 4 columns, in order. The golden CSV must match this verbatim.
-GOLDEN_COLUMNS = [
-    "recipe_id",
-    "source",
-    "title",
-    "raw_ingredients",
-    "target_band",
-    "target_score",
-    "expected_swaps",
-    "notes",
-]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_GOLDEN = REPO_ROOT / "evals" / "golden_set.csv"
 RESULTS_DIR = REPO_ROOT / "evals" / "results"
-
-
-@dataclass
-class GoldenRow:
-    """One parsed golden-set row (Contract 4)."""
-
-    recipe_id: str
-    title: str
-    ingredients: list[str]
-    target_band: str
-    target_score: int
 
 
 @dataclass
@@ -77,51 +67,6 @@ class ResultRow:
     @property
     def abs_error(self) -> int:
         return abs(self.predicted_score - self.target_score)
-
-
-def parse_ingredients(raw: str) -> list[str]:
-    """Split a ``raw_ingredients`` cell ("a; b; c") into ["a", "b", "c"]."""
-    return [part.strip() for part in raw.split("; ") if part.strip()]
-
-
-def load_golden(path: Path) -> list[GoldenRow]:
-    """Load + validate the golden CSV; fail loud on a malformed file/row."""
-    with path.open(newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        if reader.fieldnames != GOLDEN_COLUMNS:
-            raise ValueError(
-                f"golden set {path} has columns {reader.fieldnames}, "
-                f"expected exactly {GOLDEN_COLUMNS} (Contract 4)"
-            )
-        rows: list[GoldenRow] = []
-        for i, raw in enumerate(reader, start=2):  # start=2: header is line 1
-            title = (raw["title"] or "").strip()
-            ingredients = parse_ingredients(raw["raw_ingredients"] or "")
-            target_band = (raw["target_band"] or "").strip()
-            score_cell = (raw["target_score"] or "").strip()
-            if not title or not ingredients or not target_band or not score_cell:
-                raise ValueError(
-                    f"{path} line {i}: missing required Contract 4 field "
-                    f"(title/raw_ingredients/target_band/target_score)"
-                )
-            try:
-                target_score = int(score_cell)
-            except ValueError as e:
-                raise ValueError(
-                    f"{path} line {i}: target_score {score_cell!r} is not an int"
-                ) from e
-            rows.append(
-                GoldenRow(
-                    recipe_id=(raw["recipe_id"] or "").strip(),
-                    title=title,
-                    ingredients=ingredients,
-                    target_band=target_band,
-                    target_score=target_score,
-                )
-            )
-    if not rows:
-        raise ValueError(f"golden set {path} has no data rows")
-    return rows
 
 
 def band_accuracy(results: list[ResultRow]) -> float:
@@ -246,11 +191,20 @@ def main(argv: list[str] | None = None) -> None:
 
     acc = band_accuracy(results)
     mae = score_mae(results)
+    graded = [r.swap_quality for r in golden if r.swap_quality is not None]
     print(f"Model:          {model}")
     print(f"Rows:           {len(results)}")
     print(f"Band accuracy:  {acc:.1%}")
     print(f"Score MAE:      {mae:.2f}")
-    print("Per-component MAE / swap quality: deferred (no golden columns yet).")
+    if graded:
+        print(
+            f"Swap quality:   {len(graded)}/{len(golden)} rows graded, "
+            f"mean {sum(graded) / len(graded):.1f}/5 "
+            "(human grade of previously-seen swaps — not a per-model metric)"
+        )
+    else:
+        print(f"Swap quality:   0/{len(golden)} rows graded (human 1–5 column)")
+    print("Per-component MAE / automated swap judging: deferred to Phase 6.")
     print(f"Results CSV:    {out}")
 
 

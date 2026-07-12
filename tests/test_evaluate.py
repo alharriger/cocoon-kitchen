@@ -111,7 +111,7 @@ def test_load_golden_bad_score_fails_loud(tmp_path):
     bad = tmp_path / "bad.csv"
     header = ",".join(evaluate.GOLDEN_COLUMNS)
     bad.write_text(
-        f"{header}\nr1,pasted,Soup,water; salt,Clean,notanint,,note\n",
+        f"{header}\nr1,pasted,Soup,water; salt,Clean,notanint,,,note\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError):
@@ -125,14 +125,14 @@ def test_run_eval_and_write_results(monkeypatch, tmp_path):
         evaluate.GoldenRow(
             recipe_id="g1",
             title="Clean Bowl",
-            ingredients=["spinach", "olive oil"],
+            raw_ingredients="spinach; olive oil",
             target_band="Clean",
             target_score=90,
         ),
         evaluate.GoldenRow(
             recipe_id="g2",
             title="Junk",
-            ingredients=["hfcs"],
+            raw_ingredients="hfcs",
             target_band="Ultra-processed",
             target_score=10,
         ),
@@ -162,11 +162,11 @@ def test_run_eval_skips_failing_row_without_aborting(monkeypatch, capsys):
 
     golden = [
         evaluate.GoldenRow(recipe_id="g1", title="Clean Bowl",
-                           ingredients=["spinach"], target_band="Clean", target_score=90),
+                           raw_ingredients="spinach", target_band="Clean", target_score=90),
         evaluate.GoldenRow(recipe_id="bad", title="Not Food",
-                           ingredients=["lorem"], target_band="Clean", target_score=90),
+                           raw_ingredients="lorem", target_band="Clean", target_score=90),
         evaluate.GoldenRow(recipe_id="g3", title="Also Clean",
-                           ingredients=["kale"], target_band="Clean", target_score=90),
+                           raw_ingredients="kale", target_band="Clean", target_score=90),
     ]
 
     def flaky(title, ingredients, **k):

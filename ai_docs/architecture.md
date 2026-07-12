@@ -28,8 +28,9 @@ cocoonkitchen/
 │   ├── rubric.md             # human-readable (HUMAN-OWNED)
 │   └── rubric.yaml           # machine-readable weights/bands/lists (placeholder until human finalizes)
 ├── src/clean_recipe/
-│   ├── schema.py  parse.py  prompt.py  score.py  log.py
-├── app.py                    # Streamlit UI
+│   ├── schema.py  parse.py  prompt.py  score.py  log.py  golden.py
+├── app.py                    # Streamlit UI (the deployable scorer)
+├── console.py                # labeling console (separate entrypoint, LOCAL ONLY)
 ├── evals/
 │   ├── golden_set.csv        # HUMAN-OWNED labels; template + sample rows only
 │   ├── evaluate.py           # runner + metrics → results/
@@ -37,6 +38,9 @@ cocoonkitchen/
 ```
 
 ## Decision log
+
+### 2026-07-12 — Console is a separate local-only entrypoint (`console.py`), not `pages/`
+The Phase 4 labeling console is a **root-level `console.py` run as its own entrypoint** (`streamlit run console.py`); no `pages/` directory exists. This supersedes the "likely shape: a separate Streamlit page under `pages/`" guess in the 2026-07-11 entry below. Why: Streamlit auto-attaches any `pages/` dir to the deployed entrypoint, so the Phase 5 public deploy of `app.py` would have grown a Console page exposing **every logged recipe/verdict** — forcing either an auth layer (anti-bloat violation) or a fragile deploy-time exclusion step. A separate entrypoint is unexposed **by construction**: Streamlit Cloud serves exactly the file it's pointed at, and `console.py` sitting in the repo is inert. Related decisions in the same build: the golden-row shape (Contract 4 v0.2) lives in `src/clean_recipe/golden.py`, imported by both `evaluate.py` and the console (one source of truth); the console's pre-score calls `score_recipe(..., log=False)` so labeling sessions never pollute `data/logs/verdicts.jsonl` (the label-from-log source); the console's only write is a header-verified append to `golden_set.csv` (cells defanged against CSV formula injection). Built solo per the fan-out rule below — author and label-from-log share the golden-row form and write path, so they are not independent tracks. **Revisit when:** the console needs remote access — add access gating FIRST.
 
 ### 2026-07-12 — Two-layer "is this a recipe?" validation
 Surfaced during Phase 3 manual test: a pasted job posting (with one "turkey sausage" line) was accepted and scored — `parse.py` accepted any title+≥1 line and the scorer never questioned it. Fix is two layers, cheap-then-semantic: (1) a **structural pre-guard in `parse.py`** rejects pasted prose (any ingredient line > 250 chars) before spending a model call — deliberately generous to never reject a real recipe; (2) an **`is_recipe` gate in the model call** (`prompt.py` asks for the judgment first; `score.py` raises `NotARecipeError` on false) as the semantic backstop for disguised non-recipes the guard can't catch. `NotARecipeError` is a valid final judgment — not retried, not logged as a verdict — distinct from `ScoringError` (malformed output). Verdict schema unchanged (a non-recipe yields no card). **Revisit when:** the golden set exists — measure is_recipe false-positive/negative rate; if the parse heuristic mis-fires, tune or drop it (the model gate is the reliable layer). See `llm_contracts.md` Contract 3.

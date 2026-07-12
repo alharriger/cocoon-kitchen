@@ -17,13 +17,13 @@
 ### Tasks
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1 | Write detailed Phase 4 plan + security audit; get Amber's approval | ⬜ Not started | **← start here.** Cover: page structure (separate `pages/` from the scorer), author + label-from-log flows, Contract-4 CSV write, log reader, no-DB guardrail, access note for future public deploy |
-| 2 | Log reader: browse/paginate `data/logs/*.jsonl` (read-only) | ⬜ Not started | reuse `log.py` format; no new persistence layer |
-| 3 | Author mode: recipe → optional pre-score (`score_recipe`) → editable Contract-4 golden row → append to `golden_set.csv` | ⬜ Not started | Contract 4 columns verbatim (see llm_contracts). **Labels are human-owned — Claude ships UI + template, never invents labels/weights** |
-| 4 | Label-from-log mode: pick a logged verdict → correct into a golden row + swap-quality grade | ⬜ Not started | |
-| 5 | Pause for Amber's manual test (build a few real golden rows end-to-end) | ⬜ Not started | |
+| 1 | Write detailed Phase 4 plan + security audit; get Amber's approval | ✅ Done | Approved 2026-07-12. Key calls: `console.py` separate entrypoint (NOT `pages/` — would ride the Phase 5 public deploy); Contract 4 v0.2 adds `swap_quality`; pre-score uses `log=False`; solo build (fan-out rule: modes share the form + write path) |
+| 2 | Log reader: browse/paginate `data/logs/*.jsonl` (read-only) | ✅ Done | `read_log`/`list_log_files` in `log.py` — malformed lines skip + count, never crash; Logs tab paginates 20/page |
+| 3 | Author mode: recipe → optional pre-score (`score_recipe`) → editable Contract-4 golden row → append to `golden_set.csv` | ✅ Done | Shape lives in `src/clean_recipe/golden.py` (shared with `evaluate.py`). Pre-fill is banner-marked model suggestion; band/score have NO defaults — a save can't invent a label |
+| 4 | Label-from-log mode: pick a logged verdict → correct into a golden row + swap-quality grade | ✅ Done | swap_quality (1–5) required in this mode, optional in author mode (UI rule; blank is legal in the contract) |
+| 5 | Pause for Amber's manual test (build a few real golden rows end-to-end) | 🟡 **← waiting on Amber** | `streamlit run console.py` — author a couple of real rows + label a logged verdict; check the form flow feels right |
 | 6 | Merge gates: `/verify` + code-review + `/security-review`; merge to main | ⬜ Not started | security focus: the console surfaces all logged inputs |
-| 7 | Phase 4 retrospective → log pitfalls → refresh this doc for Phase 5 | ⬜ Not started | |
+| 7 | Phase 4 retrospective → log pitfalls → refresh this doc for Phase 5 | ⬜ Not started | pyarrow-segfault pitfall already logged (bit us mid-phase) |
 
 ### Definition of done (Phase 4)
 Amber can open the console locally, author golden rows from recipes (and correct logged verdicts into rows), and export a Contract-4 `golden_set.csv` — enough to start assembling the 20–50-row golden set. No new persistence layer; unit tests green; docs in sync; merged to main.
@@ -32,8 +32,8 @@ Amber can open the console locally, author golden rows from recipes (and correct
 - **Console before deploy** (decided 2026-07-11): the golden set is the human long-pole gating evals; author mode needs no live traffic, so it isn't blocked by deploy. Order: 3 scorer → **4 console** → 5 deploy → 6 evals → 7 explainability.
 - **Thin JSONL/CSV front-end** — reads the append-only log, writes golden rows to CSV. No DB/auth/vector store unless an eval number (or public console deploy) demands it (architecture 2026-07-11).
 - **Golden labels + rubric weights are human-owned** (CLAUDE.md non-negotiable): the console is Amber's labeling tool; Claude never fills in target bands/scores/weights.
-- Likely shape: a separate Streamlit page under `pages/`, distinct from the user-facing scorer (`app.py`).
-- **Fan-out check** (2026-07-12 rule): decide at planning time whether the two modes are independent enough to build as parallel worktree agents, or one cohesive page built solo. Note the call in the plan.
+- ~~Likely shape: a separate Streamlit page under `pages/`~~ → **Decided in the approved plan: root-level `console.py`, its own entrypoint, NO `pages/` dir** — `pages/` auto-attaches to the deployed entrypoint and would have exposed all logged recipes on the Phase 5 public deploy (architecture 2026-07-12).
+- **Fan-out check** (2026-07-12 rule): **called solo** in the approved plan — author and label-from-log share the golden-row form, validation, and write path; not independent tracks.
 
 ### Environment reminders (from pitfalls)
 - Import name is `clean_recipe`, NOT `cocoonkitchen`.
@@ -43,13 +43,14 @@ Amber can open the console locally, author golden rows from recipes (and correct
 - When changing the model-I/O contract, walk the full blast radius (prompt + `_REPAIR_HINT` + all callers' `except` + validators) — see 2026-07-12 pitfall.
 
 ### Blockers
-- None. Scorer (`app.py`) + core are merged and verified. `data/logs/verdicts.jsonl` already accumulates real verdicts to label from.
+- **Task 5: Amber's manual test.** Everything through task 4 is built and green (156 tests) on `phase-4/console`; merge gates run after her pass.
 
 ### Handoff notes for next session
-- Phase 3 merged to main (commit `4a2ff15`, merge `c1d2b76`), manually verified by Amber. Scorer UI is `app.py`; the core is `parse_recipe`/`score_recipe`.
-- `log.py` already appends every verdict to `data/logs/verdicts.jsonl` (gitignored) — the label-from-log source. Contract 4 (golden-row format) is in `llm_contracts.md`.
-- Deferred (from Phase 2, still open): Contract 4's `raw_ingredients` "path to a text file" option isn't implemented in `evaluate.py` (only inline `"; "`-separated); confirm with Amber when real labels land. Per-component MAE + swap-quality metrics await golden columns.
-- Start by drafting the Phase 4 plan and presenting it for approval.
+- **Build is complete on `phase-4/console`** (implementation 2026-07-12, plan approved same day). New: `src/clean_recipe/golden.py` (Contract-4 v0.2 shape — `GoldenRow`, `load_golden`, append-only `append_golden_row` with header check + formula-injection defang, slug suggester), `console.py` (4 tabs: Logs / Author / Label-from-log / Results; zero `unsafe_allow_html`; untrusted strings only through non-markdown widgets), tolerant reader in `log.py`, `tests/test_golden.py` + `tests/test_console.py`. Changed: `evaluate.py` imports the shared shape + prints swap-quality info; `golden_set.csv` template has the v0.2 header; README + contracts/architecture docs updated.
+- **Env fix (pitfall logged):** pyarrow 25.0.0 segfaulted `st.dataframe` in Streamlit script threads; `pyproject.toml` now pins `pyarrow==21.0.0` + `pandas==2.3.3`. Re-run `pip install -e ".[dev]"` on stale venvs.
+- Manual test for Amber: `streamlit run console.py` → author a real golden row (with and without pre-score), label one logged verdict (18 real verdicts already in `data/logs/verdicts.jsonl`), eyeball `golden_set.csv`. Delete the `sample-*` template rows whenever real labels land (console reminds you).
+- Deferred (from Phase 2, still open): Contract 4's `raw_ingredients` "path to a text file" option isn't implemented in `evaluate.py` (only inline `"; "`-separated) — console always writes inline, so console-authored rows never hit the gap; confirm with Amber when real labels land. Per-component MAE + automated swap judging remain Phase 6.
+- Known limitation (documented in console.py): log records don't store `source`, so label-from-log rows default to `pasted` (editable in the form).
 
 ---
 

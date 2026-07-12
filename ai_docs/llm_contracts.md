@@ -48,6 +48,8 @@ Built by `prompt.py` from rubric.yaml + normalized ingredients. Requirements:
 
 This is the contract between the human's labeling work and the eval harness. `evals/golden_set.csv` ships with exactly these columns (+ 2–3 example rows) so hand-labeling drops straight in. **Human-owned** — Claude ships the template and samples, never the real labels.
 
+**Format version: v0.2.** The row shape lives in code in `src/clean_recipe/golden.py` (`GOLDEN_COLUMNS` + `GoldenRow`) — the single source of truth imported by both the eval harness (`evals/evaluate.py`) and the labeling console (`console.py`).
+
 | Column | Meaning |
 |---|---|
 | `recipe_id` | stable short id |
@@ -57,6 +59,7 @@ This is the contract between the human's labeling work and the eval harness. `ev
 | `target_band` | Clean / Mostly Clean / Processed / Ultra-processed |
 | `target_score` | rough 0–100 |
 | `expected_swaps` | `from>to; from>to` (semicolon-separated) |
+| `swap_quality` | human 1–5 grade of the model's swaps for this recipe; blank = not graded (v0.2) |
 | `notes` | why / where it's ambiguous |
 
 Target 20–50 rows spanning obviously-clean, obviously-ultra-processed, and many ambiguous middles.
@@ -67,7 +70,7 @@ Target 20–50 rows spanning obviously-clean, obviously-ultra-processed, and man
 - **Band accuracy** — % landed in the correct bucket.
 - **Score error** — mean absolute error vs. `target_score`.
 - **Per-component error** — MAE per sub-score, to localize where it's wrong.
-- **Swap quality** — did it catch the flagged swaps? Start as a manual 1–5 column the human fills; graduate to LLM-as-judge later.
+- **Swap quality** — did it catch the flagged swaps? The manual 1–5 column exists as of v0.2 (`swap_quality`, filled via the console); `evaluate.py` reports rows-graded + mean informationally (it grades previously-seen swaps, so it is not a per-model bake-off metric). Graduate to LLM-as-judge later (Phase 6).
 
 ## Change control (regression discipline)
 
@@ -79,4 +82,5 @@ Target 20–50 rows spanning obviously-clean, obviously-ultra-processed, and man
 - 2026-07-10 — Phase 1: `schema.py` transcribes Contract 1 verbatim (no logic). `rubric.yaml` ships documented placeholder weights + **placeholder band cutoffs** (Clean 80–100 / Mostly Clean 60–79 / Processed 40–59 / Ultra-processed 0–39); `nova4_markers`/`refined_seed_oils`/`aliases` left empty for the human. No prompt yet. Pre-label — no eval delta.
 - 2026-07-11 — Contract 3: provider strategy set to a **neutral OpenAI-compatible seam, free-tier-first** (Gemini Flash-Lite default, Groq backup), **eval-selected** model; validate-and-retry-once discipline added. Pricing/capabilities verified across OpenAI, Gemini, DeepSeek, Qwen, GLM, Groq, Together, OpenRouter, and Claude (see `architecture.md`). Pre-label — no eval delta.
 - 2026-07-11 — Phase 2 build: Contract 3 prompt implemented in `prompt.py`; model returns `sub_scores`/`flagged_ingredients`/`swaps` only (JSON mode), `score.py` composes the composite `score` + `band` from rubric weights/cutoffs (weights authoritative in yaml). Sub-scores defined 0–100 higher=cleaner. Contract 4 harness (`evals/evaluate.py`) implemented with band accuracy + score MAE; per-component MAE + swap-quality deferred (no golden columns yet). Verified end-to-end on GLM-4.5-Flash. Pre-label — no eval delta.
+- 2026-07-12 — Phase 4: **Contract 4 v0.1 → v0.2** — added optional `swap_quality` column (human 1–5 grade of the model's swaps; blank = not graded), positioned between `expected_swaps` and `notes`. Row shape extracted to `src/clean_recipe/golden.py` (single source of truth for harness + labeling console); `evaluate.py` imports it and reports swap-quality informationally. Template + sample rows updated (one sample shows a grade). The console requires the grade in label-from-log mode (model swaps are on screen) and leaves it optional in author mode — a UI rule, not a contract rule. Pre-label — no eval delta.
 - 2026-07-12 — Phase 3 (during manual test): added the **`is_recipe` gate** to Contract 3. Model now returns `is_recipe` first and only scores real recipes; non-recipe input (job posting, prose, stray item) returns `{"is_recipe": false}` → `score.py` raises `NotARecipeError` (final, not retried/logged). Prompt updated (`prompt.py`), `ModelOutput` gained `is_recipe` + optional scoring fields with a validator that fails loud when a recipe omits sub-scores. Cheap parse-layer prose guard added (`parse.py`, >250-char line). Verdict schema (Contract 1) **unchanged** — a non-recipe never produces a Verdict. Motivated by a real false-positive: a job-posting blob with one "turkey sausage" line scored as a recipe. Pre-label — no eval delta (revisit against the golden set for is_recipe false-positive/negative rate once labels land).

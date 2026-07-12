@@ -21,6 +21,12 @@ dependencies = [
     "recipe-scrapers==15.11.0",
     "requests==2.34.2",  # parse.py fetches recipe URLs directly (SSRF-guarded)
     "streamlit==1.59.1",
+    # Transitive deps of streamlit, pinned explicitly (Phase 4): pyarrow 25.0.0
+    # segfaults serializing st.dataframe payloads to Arrow inside Streamlit's
+    # script threads (reproduced repeatedly by console.py's AppTest suite);
+    # 21.0.0 is stable. pandas rides along pinned per the exact-pin convention.
+    "pandas==2.3.3",
+    "pyarrow==21.0.0",
 ]
 
 [project.optional-dependencies]
