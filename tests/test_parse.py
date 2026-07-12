@@ -52,6 +52,33 @@ def test_paste_title_only_needs_ingredients():
         parse_recipe("Just A Title")
 
 
+def test_paste_rejects_prose_blob():
+    # A pasted article/job-posting has long prose lines, not short ingredient
+    # lines — the cheap non-recipe guard rejects it before any model call.
+    blob = (
+        "Preferred requirements\n"
+        + "We believe great leadership starts with alignment on vision, values, "
+        "and ways of working. To give you deeper insight into who we are and "
+        "what we're looking for, we invite you to explore our leadership "
+        "principles and the behaviors that guide how we operate, collaborate, "
+        "and scale as a company.\n"
+        + "turkey sausage\n"
+    )
+    with pytest.raises(ParseError, match="prose"):
+        parse_recipe(blob)
+
+
+def test_paste_accepts_normal_length_ingredient_lines():
+    # A realistically long ingredient line (with notes) still parses — the guard
+    # is generous so it never rejects real recipes.
+    long_but_real = (
+        "2 quarts homemade beef stock or homemade or store-bought low-sodium "
+        "chicken stock, warmed"
+    )
+    r = parse_recipe(f"French Onion Soup\n{long_but_real}\n2 sprigs thyme")
+    assert r.ingredients[0] == long_but_real
+
+
 # ---- scrape: known site -----------------------------------------------------
 
 def test_known_site_extraction():

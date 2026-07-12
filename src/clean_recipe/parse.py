@@ -37,6 +37,11 @@ from recipe_scrapers._exceptions import (
 )
 
 _ALLOWED_SCHEMES = {"http", "https"}
+# Ingredient lines are short. A pasted line longer than this reads as prose (an
+# article, a job posting, notes) rather than an ingredient — a cheap non-recipe
+# guard. Deliberately generous to avoid rejecting real recipes; the scorer's
+# is_recipe judgment (score.py) is the semantic backstop for subtler junk.
+_MAX_INGREDIENT_LINE = 250
 _FETCH_TIMEOUT = 10  # seconds, connect + read
 _MAX_BYTES = 2 * 1024 * 1024  # 2 MiB response cap
 _MAX_REDIRECTS = 5
@@ -289,6 +294,11 @@ def _parse_pasted(text: str) -> ParsedRecipe:
     if not ingredients:
         raise ParseError(
             "pasted recipe needs a title line and at least one ingredient line"
+        )
+    if any(len(line) > _MAX_INGREDIENT_LINE for line in ingredients):
+        raise ParseError(
+            "this looks more like prose than a recipe. Paste a title line, then "
+            "one ingredient per line."
         )
     return ParsedRecipe(title=title, ingredients=ingredients, source="pasted")
 

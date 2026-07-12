@@ -17,6 +17,7 @@ Source of truth for UI and voice. Small on purpose in v0 (Streamlit constrains m
 ## Color: band palette (v0)
 - Clean — green; Mostly Clean — yellow-green; Processed — amber; Ultra-processed — deep orange/red.
 - Never use red/green as the *only* signal — band name is always written out (accessibility).
+- **Concrete hex values (decided 2026-07-11, Phase 3 `app.py` band pill):** Clean `#2e7d32`, Mostly Clean `#9e9d24`, Processed `#ef6c00`, Ultra-processed `#c62828`. Code-owned map `BAND_COLORS` in `app.py`; the band name always renders inside the pill next to the color.
 
 ## Deferred until the UI grows
 Typography, spacing scale, component library, dark mode. Log decisions here when they happen.

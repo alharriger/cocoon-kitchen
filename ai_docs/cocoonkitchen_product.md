@@ -26,6 +26,7 @@ Vector DB, embeddings, RAG, accounts/auth, real database, shopping lists, meal p
 | 4 | Observability & Labeling Console (**golden-set builder**) | Lightweight internal front-end, two modes: (a) **author** — paste/enter a recipe, optionally pre-score to pre-fill, then set target_band/target_score/expected_swaps/notes → a Contract-4 golden row (works with zero prior logs); (b) **label-from-log** — browse `data/logs/*.jsonl`, correct/confirm real Verdicts into golden rows + swap-quality grades. Exports to `golden_set.csv`; views `evals/results/`. **This is the tool used to create the golden set.** | The 20–50-row golden set exists (spanning clean / ultra-processed / ambiguous), authored via the console |
 | 5 | Deploy & harden | Streamlit Cloud URL, security review, golden_set.csv template shipped | Shareable link works; security review clean |
 | 6 | Real evals & tuning (blocked on human golden set) | Human finalizes rubric.yaml weights + the golden set from Phase 4 → tuning loop + bargain-model bake-off across GLM/Gemini/Groq/DeepSeek/Qwen | Band accuracy / MAE targets the human sets |
+| 7 | Verdict explainability & trust | Richer output so the cook can trust the score, not just read it: recipe context on the card (title + **full** ingredient list, not only the flagged ones) and **per-ingredient / per-sub-score transparency** — why each ingredient was flagged and how each dimension got its number. Likely a Contract-1/3 change (model returns per-ingredient rationale, possibly a confidence signal) + a design pass. **Deliberately after Phase 6:** explaining and justifying scores is only credible once the rubric is validated — otherwise we're rationalizing numbers we don't yet trust. (Cheapest slice — showing the full ingredient list for context — can be pulled forward as a small UX win before then.) | Card shows recipe context + per-ingredient rationale; cooks report the scoring feels trustworthy/legible; any contract change ships with **no band-accuracy / MAE regression** on the golden set |
 
 ## User stories
 
@@ -38,6 +39,7 @@ Vector DB, embeddings, RAG, accounts/auth, real database, shopping lists, meal p
 - As the product owner, I can open an **observability & labeling console** to (a) author golden rows from a recipe directly and (b) correct/label real logged verdicts into golden rows + swap-quality grades, exporting to `golden_set.csv` — this is how I build the 20–50-row golden set the evals need (Phase 4).
 
 ### Next up (post-v0, each must earn its place)
+- As a home cook, I want to see the whole recipe in context on the card (its title and full ingredient list, not just the flagged items) and understand *why* each ingredient was flagged and how each sub-score was reached — so I can trust the number instead of taking it on faith. (Phase 7 — explainability & trust; depends on a validated rubric from Phase 6.)
 - Rubric tuning loop with regression tracking across prompt versions.
 - LLM-as-judge for swap quality (replaces manual 1–5 grading).
 - Knowledge base for additive/ingredient facts (CSV/SQLite) — only if eval errors localize to ingredient knowledge.
