@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from clean_recipe import golden
-from clean_recipe.schema import Swap
+from clean_recipe.schema import SubScores, Swap, Verdict
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SHIPPED_GOLDEN = REPO_ROOT / "evals" / "golden_set.csv"
@@ -261,3 +261,131 @@ def test_append_handles_missing_trailing_newline(tmp_path):
 def test_existing_recipe_ids(tmp_path):
     path = seed_csv(tmp_path / "g.csv", [row(), row(recipe_id="test-02")])
     assert golden.existing_recipe_ids(path) == {"test-01", "test-02"}
+
+
+# ---- backlog -------------------------------------------------------------------
+
+def backlog_entry(**overrides) -> golden.BacklogEntry:
+    base = dict(recipe_id="soup-01", title="Soup", ingredients=["water", "salt"])
+    base.update(overrides)
+    return golden.BacklogEntry(**base)
+
+
+def test_backlog_entry_defaults_and_raw_ingredients():
+    e = backlog_entry()
+    assert e.status == "open" and e.source == "pasted"
+    assert e.raw_ingredients == "water; salt"
+
+
+@pytest.mark.parametrize("field", ["recipe_id", "title"])
+def test_backlog_entry_required_fields(field):
+    with pytest.raises(ValidationError):
+        backlog_entry(**{field: "  "})
+
+
+def test_backlog_entry_needs_an_ingredient():
+    with pytest.raises(ValidationError):
+        backlog_entry(ingredients=[])
+
+
+def test_backlog_round_trip_and_missing_file(tmp_path):
+    path = tmp_path / "backlog.jsonl"
+    assert golden.read_backlog(path) == []  # missing file → empty, no error
+    golden.write_backlog(
+        [backlog_entry(), backlog_entry(recipe_id="soup-02", status="submitted")], path
+    )
+    loaded = golden.read_backlog(path)
+    assert [e.recipe_id for e in loaded] == ["soup-01", "soup-02"]
+    assert [e.status for e in loaded] == ["open", "submitted"]
+
+
+def test_read_backlog_skips_malformed_line(tmp_path):
+    path = tmp_path / "backlog.jsonl"
+    golden.write_backlog([backlog_entry()], path)
+    with path.open("a", encoding="utf-8") as f:
+        f.write("{not json\n")
+        f.write('{"recipe_id": "x"}\n')  # valid json, missing required fields
+    assert [e.recipe_id for e in golden.read_backlog(path)] == ["soup-01"]
+
+
+# ---- drafts + promote ----------------------------------------------------------
+
+def make_verdict() -> Verdict:
+    return Verdict(
+        score=48,
+        band="Processed",
+        sub_scores=SubScores(
+            ultra_processing=40, added_sugar=30, fat_quality=70,
+            sodium_preservatives=70, whole_food_ratio=40, additive_count=50,
+        ),
+        flagged_ingredients=["sugar"],
+        swaps=[Swap(from_ingredient="butter", to_ingredient="olive oil", reason="fat")],
+    )
+
+
+def draft(recipe_id="draft-01", status="draft", **row_overrides) -> golden.GoldenDraft:
+    return golden.GoldenDraft(
+        row=row(recipe_id=recipe_id, **row_overrides),
+        model_verdict=make_verdict(),
+        status=status,
+    )
+
+
+def test_draft_round_trip_preserves_verdict(tmp_path):
+    path = tmp_path / "drafts.jsonl"
+    assert golden.read_drafts(path) == ([], 0)
+    golden.append_draft(draft(), path)
+    golden.append_draft(draft(recipe_id="draft-02", status="approved"), path)
+    drafts, skipped = golden.read_drafts(path)
+    assert skipped == 0
+    assert [d.row.recipe_id for d in drafts] == ["draft-01", "draft-02"]
+    assert drafts[0].model_verdict == make_verdict()
+    assert drafts[1].status == "approved"
+
+
+def test_read_drafts_skips_malformed(tmp_path):
+    path = tmp_path / "drafts.jsonl"
+    golden.append_draft(draft(), path)
+    with path.open("a", encoding="utf-8") as f:
+        f.write("garbage\n")
+    drafts, skipped = golden.read_drafts(path)
+    assert len(drafts) == 1 and skipped == 1
+
+
+def test_write_drafts_rewrites_after_edit(tmp_path):
+    path = tmp_path / "drafts.jsonl"
+    golden.write_drafts([draft(), draft(recipe_id="draft-02")], path)
+    drafts, _ = golden.read_drafts(path)
+    drafts[0].status = "approved"
+    drafts[0].row.swap_quality = 5
+    golden.write_drafts(drafts, path)
+    reloaded, _ = golden.read_drafts(path)
+    assert reloaded[0].status == "approved" and reloaded[0].row.swap_quality == 5
+
+
+def test_promote_only_approved_and_dedups(tmp_path):
+    golden_csv = seed_csv(tmp_path / "golden.csv")
+    drafts = [
+        draft(recipe_id="d-approved", status="approved"),
+        draft(recipe_id="d-draft", status="draft"),  # not approved → skipped
+        draft(recipe_id="d-approved-2", status="approved"),
+    ]
+    promoted, skipped = golden.promote_approved(drafts, golden_csv)
+    assert promoted == ["d-approved", "d-approved-2"]
+    assert skipped == []
+    assert golden.existing_recipe_ids(golden_csv) == {"d-approved", "d-approved-2"}
+
+    # Re-running is a safe no-op: already-promoted ids are skipped as dupes.
+    promoted2, skipped2 = golden.promote_approved(drafts, golden_csv)
+    assert promoted2 == []
+    assert set(skipped2) == {"d-approved", "d-approved-2"}
+
+
+def test_promote_row_lands_in_contract4_shape(tmp_path):
+    golden_csv = seed_csv(tmp_path / "golden.csv")
+    d = draft(recipe_id="fettuccine-alfredo", swap_quality=2, expected_swaps="a>b")
+    d.status = "approved"
+    golden.promote_approved([d], golden_csv)
+    (loaded,) = golden.load_golden(golden_csv)
+    assert loaded.recipe_id == "fettuccine-alfredo"
+    assert loaded.swap_quality == 2 and loaded.expected_swaps == "a>b"

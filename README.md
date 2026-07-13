@@ -11,7 +11,7 @@ Phase 4 — observability & labeling console (the golden-set builder) on top of 
 
 ## Layout
 - `app.py` — Streamlit UI (thin consumer of the core)
-- `console.py` — internal labeling console (`streamlit run console.py`, **local only — never deploy**)
+- `console.py` — golden-set builder console (`streamlit run console.py`, **local only — never deploy**): queue recipes → draft (via `ai_docs/golden_draft_handoff.md`) → grade → promote to `golden_set.csv`
 - `src/clean_recipe/` — pure, UI-agnostic core (`parse.py`, `score.py`, `schema.py`, `log.py`, …)
 - `rubric/` — `rubric.yaml` (machine) + `rubric.md` (human). **Human-owned; placeholder weights.**
 - `evals/` — golden set + eval harness (later phases)

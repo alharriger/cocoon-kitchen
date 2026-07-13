@@ -22,13 +22,15 @@ Security notes:
 from __future__ import annotations
 
 import csv
+import json
 import re
 from itertools import count
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from .schema import Band, Swap
+from .schema import Band, Swap, Verdict
 
 # Exact Contract 4 columns, in order. The golden CSV must match this verbatim.
 GOLDEN_COLUMNS = [
@@ -244,3 +246,141 @@ def append_golden_row(row: GoldenRow, path: Path | str) -> int:
             f.write("\n")
         csv.writer(f).writerow([defang_cell(c) for c in cells])
     return existing_rows + 1
+
+
+# ---- the golden-set builder pipeline -----------------------------------------
+#
+# The console (console.py) drives a three-stage assembly line, all thin JSONL/CSV
+# (no DB — anti-bloat holds):
+#
+#   backlog.jsonl  ──►  golden_drafts.jsonl  ──►  golden_set.csv
+#   (Amber curates      (a separate Claude       (the append-only,
+#    recipes)            instance drafts          human-owned final set)
+#                        labels + real verdict)
+#
+# BacklogEntry and GoldenDraft are the shapes for the first two files; the draft
+# holds a full GoldenRow (Claude's proposed labels) plus the real model verdict
+# so Amber can grade the model's swaps. Promotion extracts the row and appends it
+# to golden_set.csv via the append-only writer above.
+
+
+class BacklogEntry(BaseModel):
+    """One recipe Amber has queued for labeling (a row of backlog.jsonl)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    recipe_id: str = Field(min_length=1)
+    source: str = "pasted"  # URL, or "pasted"
+    title: str = Field(min_length=1)
+    ingredients: list[str] = Field(min_length=1)
+    status: Literal["open", "submitted"] = "open"
+    added_ts: str = ""  # ISO timestamp; set by the console at add time
+
+    @property
+    def raw_ingredients(self) -> str:
+        """The ``ingredients`` list rendered as a Contract-4 cell."""
+        return join_ingredients(self.ingredients)
+
+
+class GoldenDraft(BaseModel):
+    """One draft golden row awaiting Amber's review (a row of golden_drafts.jsonl).
+
+    ``row`` is the proposed Contract-4 label (drafted by the separate instance,
+    fully editable by Amber — she owns the final label). ``model_verdict`` is the
+    real model output captured at draft time, shown read-only so she can grade the
+    model's swaps into ``row.swap_quality``. ``status`` gates promotion.
+    """
+
+    row: GoldenRow
+    model_verdict: Verdict | None = None
+    status: Literal["draft", "approved"] = "draft"
+
+
+def _read_jsonl(path: Path | str, model: type[BaseModel]) -> tuple[list, int]:
+    """Read a JSONL file into ``model`` instances; tolerant of malformed lines.
+
+    Returns ``(records, skipped_count)``. A missing file is an empty list, not an
+    error (the console creates these on first write). One bad line never bricks
+    the reader — the separate draft-generating instance writes ``golden_drafts``,
+    so a partial/corrupt line must degrade gracefully.
+    """
+    path = Path(path)
+    if not path.exists():
+        return [], 0
+    records: list = []
+    skipped = 0
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                records.append(model.model_validate_json(line))
+            except ValidationError:
+                skipped += 1
+    return records, skipped
+
+
+def _write_jsonl(records: list[BaseModel], path: Path | str) -> None:
+    """Rewrite a JSONL file with ``records`` (one JSON object per line).
+
+    These files are console-owned working state (unlike the shipped golden CSV),
+    so a full rewrite on mutate is fine — they are small and we own every writer.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for record in records:
+            f.write(record.model_dump_json() + "\n")
+
+
+def read_backlog(path: Path | str) -> list[BacklogEntry]:
+    """All backlog entries; [] if the file doesn't exist. Skips malformed lines."""
+    records, _ = _read_jsonl(path, BacklogEntry)
+    return records
+
+
+def write_backlog(entries: list[BacklogEntry], path: Path | str) -> None:
+    """Rewrite backlog.jsonl (used to add, remove, or mark entries submitted)."""
+    _write_jsonl(entries, path)
+
+
+def read_drafts(path: Path | str) -> tuple[list[GoldenDraft], int]:
+    """All draft rows + count of malformed lines skipped; ([], 0) if no file."""
+    return _read_jsonl(path, GoldenDraft)
+
+
+def write_drafts(drafts: list[GoldenDraft], path: Path | str) -> None:
+    """Rewrite golden_drafts.jsonl (used when Amber edits/approves a draft)."""
+    _write_jsonl(drafts, path)
+
+
+def append_draft(draft: GoldenDraft, path: Path | str) -> None:
+    """Append one draft to golden_drafts.jsonl (used by the draft generator)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(draft.model_dump_json() + "\n")
+
+
+def promote_approved(
+    drafts: list[GoldenDraft], golden_csv: Path | str
+) -> tuple[list[str], list[str]]:
+    """Append every ``approved`` draft's row to the golden CSV (append-only).
+
+    Returns ``(promoted_ids, skipped_ids)``. A draft whose ``recipe_id`` already
+    exists in the golden set is skipped (dedup) — this also makes re-running
+    promotion a safe no-op, so there is no separate "promoted" state to track.
+    """
+    existing = existing_recipe_ids(golden_csv)
+    promoted: list[str] = []
+    skipped: list[str] = []
+    for draft in drafts:
+        if draft.status != "approved":
+            continue
+        if draft.row.recipe_id in existing:
+            skipped.append(draft.row.recipe_id)
+            continue
+        append_golden_row(draft.row, golden_csv)
+        existing.add(draft.row.recipe_id)
+        promoted.append(draft.row.recipe_id)
+    return promoted, skipped
