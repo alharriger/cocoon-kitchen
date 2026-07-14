@@ -88,16 +88,38 @@ def test_smoke_empty_everything(env):
 
 # ---- backlog -----------------------------------------------------------------
 
-def test_backlog_add_paste_appends_entry(env):
+def test_backlog_paste_cleans_furniture_then_adds(env):
     at = run_console()
-    at.text_area(key="backlog_paste").set_value("French Onion Soup\nyellow onions\nbutter\nbroth")
-    click_by_label(at, "Add to backlog").run()
+    at.text_input(key="bk_title").set_value("Chopped Cheese")
+    at.text_area(key="bk_paste").set_value(
+        "Ingredients\nDeselect All\nSauce:\n1/4 cup mayonnaise\n"
+        "2 tablespoons ketchup\nDirections\nPreheat the oven and cook."
+    )
+    at.button(key="bk_parse").click().run()
 
-    assert at.success
+    # Preview appears with the furniture stripped and directions cut.
+    assert at.text_input(key="bk_prev_title").value == "Chopped Cheese"
+    prev = at.text_area(key="bk_prev_ings").value
+    assert "1/4 cup mayonnaise" in prev and "Directions" not in prev
+
+    at.button(key="bk_add").click().run()
     (entry,) = golden.read_backlog(env.backlog)
-    assert entry.title == "French Onion Soup"
-    assert entry.ingredients == ["yellow onions", "butter", "broth"]
+    assert entry.title == "Chopped Cheese"
+    assert entry.ingredients == ["1/4 cup mayonnaise", "2 tablespoons ketchup"]
     assert entry.status == "open" and entry.source == "pasted"
+
+
+def test_backlog_preview_is_editable_before_add(env):
+    at = run_console()
+    at.text_input(key="bk_title").set_value("Soup")
+    at.text_area(key="bk_paste").set_value("1 onion\n1 cup broth\nmystery line")
+    at.button(key="bk_parse").click().run()
+    # Amber removes a stray line in the preview before adding.
+    at.text_area(key="bk_prev_ings").set_value("1 onion\n1 cup broth")
+    at.button(key="bk_add").click().run()
+
+    (entry,) = golden.read_backlog(env.backlog)
+    assert entry.ingredients == ["1 onion", "1 cup broth"]
 
 
 def test_backlog_add_link_uses_parser_not_network(env, monkeypatch):
@@ -110,13 +132,23 @@ def test_backlog_add_link_uses_parser_not_network(env, monkeypatch):
 
     monkeypatch.setattr("clean_recipe.parse.parse_recipe", fake_parse)
     at = run_console()
-    at.text_input(key="backlog_url").set_value("https://example.com/dish")
-    click_by_label(at, "Add to backlog").run()
+    at.text_input(key="bk_url").set_value("https://example.com/dish")
+    at.button(key="bk_parse").click().run()
+    assert at.text_input(key="bk_prev_title").value == "Linked Dish"
 
+    at.button(key="bk_add").click().run()
     assert called["source"] == "https://example.com/dish"
     (entry,) = golden.read_backlog(env.backlog)
     assert entry.source == "https://example.com/dish"
     assert entry.title == "Linked Dish"
+
+
+def test_backlog_paste_without_title_shows_hint(env):
+    at = run_console()
+    at.text_area(key="bk_paste").set_value("1 onion\n1 cup broth")
+    at.button(key="bk_parse").click().run()
+    assert any("Add a title" in i.value for i in at.info)
+    assert "bk_preview" not in at.session_state
 
 
 def test_backlog_submit_marks_all_open_submitted(env):

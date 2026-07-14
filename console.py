@@ -47,7 +47,7 @@ from pydantic import ValidationError
 
 from clean_recipe import golden
 from clean_recipe import log as vlog
-from clean_recipe.parse import ParseError, parse_recipe
+from clean_recipe.parse import ParseError, parse_pasted_ingredients, parse_recipe
 from clean_recipe.schema import Band, Verdict
 from clean_recipe.score import NotARecipeError, ScoringError, score_recipe
 
@@ -139,48 +139,114 @@ def _render_model_verdict(verdict: Verdict) -> None:
 
 # ---- tab: backlog ------------------------------------------------------------
 
-def _add_to_backlog(pasted: str, url: str) -> None:
-    source = url.strip() or pasted
-    if not source or not source.strip():
-        st.info("Paste a recipe or drop in a link first.")
+def _parse_for_preview() -> None:
+    """Stage 1 → parse the paste/link into an editable preview (or friendly error).
+
+    Runs on the "Parse recipe" click. A link goes through the SSRF-guarded
+    scraper; a paste goes through the forgiving ingredient cleaner (with a
+    separate title, since site copies rarely include one). The result lands in
+    ``bk_preview`` for the editable confirm step; parsing never writes anything."""
+    ss = st.session_state
+    url = (ss.get("bk_url") or "").strip()
+    title = (ss.get("bk_title") or "").strip()
+    paste = ss.get("bk_paste") or ""
+
+    if url:
+        recipe = _friendly_parse(url)
+        if recipe is None:
+            return
+        preview = {"title": recipe.title, "ingredients": recipe.ingredients,
+                   "source": recipe.source}
+    elif paste.strip():
+        if not title:
+            st.info("Add a title — recipe-site copies usually don't include one.")
+            return
+        try:
+            recipe = parse_pasted_ingredients(title, paste)
+        except ParseError as e:
+            st.warning("We couldn't find an ingredient list in that paste.")
+            with st.expander("What happened"):
+                st.code(str(e), language=None)
+            return
+        preview = {"title": recipe.title, "ingredients": recipe.ingredients,
+                   "source": "pasted"}
+    else:
+        st.info("Paste an ingredient list (with a title) or drop in a link.")
         return
-    recipe = _friendly_parse(source)
-    if recipe is None:
-        return
+
+    ss["bk_preview"] = preview
+    ss.pop("bk_prev_title", None)   # re-seed the edit widgets from the new preview
+    ss.pop("bk_prev_ings", None)
+
+
+def _commit_backlog() -> bool:
+    """Stage 2 → add the (edited) preview to the backlog and reset the form.
+
+    Returns True on success (caller reruns to refresh), False if blocked."""
+    ss = st.session_state
+    title = (ss.get("bk_prev_title") or "").strip()
+    ings = [ln.strip() for ln in (ss.get("bk_prev_ings") or "").splitlines() if ln.strip()]
+    if not title or not ings:
+        st.error("Need a title and at least one ingredient before adding.")
+        return False
     entry = golden.BacklogEntry(
-        recipe_id=golden.suggest_recipe_id(recipe.title, _all_known_ids()),
-        source=recipe.source,
-        title=recipe.title,
-        ingredients=recipe.ingredients,
-        status="open",
-        added_ts=_now_iso(),
+        recipe_id=golden.suggest_recipe_id(title, _all_known_ids()),
+        source=ss.get("bk_preview", {}).get("source", "pasted"),
+        title=title, ingredients=ings, status="open", added_ts=_now_iso(),
     )
     entries = golden.read_backlog(BACKLOG)
     entries.append(entry)
     golden.write_backlog(entries, BACKLOG)
-    st.success(f"Added “{recipe.title}” to the backlog ({len(entries)} queued).")
+    for k in ("bk_preview", "bk_prev_title", "bk_prev_ings", "bk_title", "bk_paste", "bk_url"):
+        ss.pop(k, None)
+    ss["bk_flash"] = f"Added “{title}” to the backlog ({len(entries)} queued)."
+    return True
 
 
 def _backlog_tab() -> None:
+    flash = st.session_state.pop("bk_flash", None)
+    if flash:
+        st.success(flash)
     st.caption(
-        "Queue the recipes you want labeled — paste the text or drop in a link. "
-        "When you're done, submit them for a Claude instance to draft."
+        "Queue the recipes you want labeled — paste the ingredients (with a title) "
+        "or drop in a link, check the preview, then add. When you're done, submit "
+        "the batch for a Claude instance to draft."
     )
-    with st.form("backlog_add", clear_on_submit=True, border=True):
-        pasted = st.text_area(
-            "Recipe text",
-            height=140,
-            max_chars=20_000,
-            placeholder="Grandma's french onion soup\n4 yellow onions\n2 tbsp butter\n…",
-            help="First line is the title; every following line is one ingredient.",
-            key="backlog_paste",
+
+    with st.container(border=True):
+        st.text_input("Title", key="bk_title",
+                      placeholder="Pull-Apart Chopped Cheese")
+        st.text_area(
+            "Paste the ingredients", height=150, max_chars=20_000, key="bk_paste",
+            help="Paste straight off the recipe page — headings, section labels, "
+                 "and the directions section are cleaned out automatically.",
+            placeholder="1/4 cup mayonnaise\n2 tablespoons ketchup\n…",
         )
-        url = st.text_input(
-            "…or a recipe link", placeholder="https://example.com/french-onion-soup",
-            key="backlog_url",
-        )
-        if st.form_submit_button("Add to backlog", type="primary"):
-            _add_to_backlog(pasted, url)
+        st.text_input("…or a recipe link", key="bk_url",
+                      placeholder="https://example.com/chopped-cheese")
+        if st.button("Parse recipe", type="primary", key="bk_parse"):
+            _parse_for_preview()
+
+    preview = st.session_state.get("bk_preview")
+    if preview:
+        with st.container(border=True):
+            st.caption("Preview — edit anything, then add. Drop stray lines the "
+                       "cleaner missed; one ingredient per line.")
+            st.text_input("Title", value=preview["title"], key="bk_prev_title")
+            st.text_area(
+                "Ingredients (one per line)",
+                value="\n".join(preview["ingredients"]),
+                height=200, key="bk_prev_ings",
+            )
+            add_col, discard_col = st.columns(2)
+            with add_col:
+                if st.button("Add to backlog", type="primary", key="bk_add"):
+                    if _commit_backlog():
+                        st.rerun()
+            with discard_col:
+                if st.button("Discard", key="bk_discard"):
+                    st.session_state.pop("bk_preview", None)
+                    st.rerun()
 
     entries = golden.read_backlog(BACKLOG)
     if not entries:
