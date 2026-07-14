@@ -72,7 +72,7 @@ Use the helpers — don't hand-roll the JSON:
 from clean_recipe import golden
 from clean_recipe.score import NotARecipeError, ScoringError, score_recipe
 
-for entry in golden.read_backlog(golden.Path("evals/backlog.jsonl")):  # or pass the path
+for entry in golden.read_backlog("evals/backlog.jsonl"):
     if entry.status != "submitted":
         continue
     try:
