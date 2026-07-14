@@ -10,6 +10,8 @@ from clean_recipe.parse import (
     ParsedRecipe,
     _assert_public_url,
     _scrape_recipe,
+    clean_ingredient_lines,
+    parse_pasted_ingredients,
     parse_recipe,
 )
 
@@ -77,6 +79,63 @@ def test_paste_accepts_normal_length_ingredient_lines():
     )
     r = parse_recipe(f"French Onion Soup\n{long_but_real}\n2 sprigs thyme")
     assert r.ingredients[0] == long_but_real
+
+
+# ---- forgiving cleaner (recipe-site paste) ----------------------------------
+
+def test_clean_ingredient_lines_strips_furniture_and_cuts_directions():
+    lines = [
+        "Ingredients", "Deselect All", "Sauce:", "1/4 cup mayonnaise",
+        "2 tablespoons ketchup", "Get Ingredients", "Directions",
+        "Preheat the oven.", "Serve hot.",
+    ]
+    assert clean_ingredient_lines(lines) == ["1/4 cup mayonnaise", "2 tablespoons ketchup"]
+
+
+def test_clean_ingredient_lines_noop_on_clean_input():
+    lines = ["1 cup flour", "2 eggs", "1/2 cup sugar"]
+    assert clean_ingredient_lines(lines) == lines
+
+
+def test_clean_keeps_quantity_lines_even_if_they_end_with_colon():
+    # The section-label drop must never remove a line carrying a quantity.
+    assert clean_ingredient_lines(["2 cups milk", "Ratio 2:1 water"]) == [
+        "2 cups milk", "Ratio 2:1 water"]
+
+
+def test_paste_with_recipe_site_furniture_now_parses():
+    # The Food Network shape (heading + section labels + a Directions section)
+    # that used to be rejected as "prose" — title still comes from line 1.
+    blob = ("Chopped Cheese\nIngredients\nDeselect All\nSauce:\n"
+            "1/4 cup mayonnaise\n2 tablespoons ketchup\nDirections\nCook it.")
+    r = parse_recipe(blob)
+    assert r.title == "Chopped Cheese"
+    assert r.ingredients == ["1/4 cup mayonnaise", "2 tablespoons ketchup"]
+
+
+def test_parse_pasted_ingredients_separate_title():
+    r = parse_pasted_ingredients(
+        "Chopped Cheese",
+        "Ingredients\nSauce:\n1/4 cup mayo\nGet Ingredients\nDirections\nCook.",
+    )
+    assert r.title == "Chopped Cheese"
+    assert r.ingredients == ["1/4 cup mayo"]
+    assert r.source == "pasted"
+
+
+def test_parse_pasted_ingredients_needs_title_and_ingredients():
+    with pytest.raises(ParseError):
+        parse_pasted_ingredients("   ", "1 cup flour")
+    with pytest.raises(ParseError):
+        parse_pasted_ingredients("Cake", "Ingredients\nDirections\nBake it.")
+
+
+def test_parse_pasted_ingredients_drops_long_lines_not_rejects():
+    # Unlike the scorer's paste path, the console ingest is lenient: an over-long
+    # stray line (a directions sentence without a header) is dropped, not fatal.
+    text = "1 cup flour\n" + "x" * 300 + "\n2 eggs"
+    r = parse_pasted_ingredients("Cake", text)
+    assert r.ingredients == ["1 cup flour", "2 eggs"]
 
 
 # ---- scrape: known site -----------------------------------------------------

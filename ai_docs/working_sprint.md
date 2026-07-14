@@ -14,26 +14,28 @@
 
 **⚠️ First task is to PLAN, not code.** Per our working loop, write the detailed Phase 4 plan (files, both modes' flows, Contract-4 write path, security notes — the console exposes ALL logged recipes so a public deploy would need gating, local use doesn't) and get Amber's approval BEFORE writing any code. Read `CLAUDE.md`, this file, `ai_docs/pitfalls.md`, `ai_docs/llm_contracts.md` (Contract 4 = the golden-row format, human-owned), and `ai_docs/architecture.md` (2026-07-11 console decision + 2026-07-12 sub-agent rule).
 
+> **2026-07-13 pivot (Amber's manual test → v2 console).** The v1 console (author + label-from-log, both appending straight to `golden_set.csv`) was built and merged-ready, but hand-authoring 20–50 rows in a form was too slow and Amber's real feedback lever is *grading*, not authoring. Reworked into a **backlog→drafts→promote pipeline** (see architecture 2026-07-13): Amber queues recipes (Backlog), a **separate Claude instance** drafts labels + captures the real model verdict (`ai_docs/golden_draft_handoff.md`), Amber grades one-at-a-time (swap_quality 1–5 + notes front-and-center), then promotes approved rows. Link-in-the-backlog now really fetches (was metadata-only). Roadmap gained **Phase 8 — "cleaner spectrum"** (tiered alternatives; brainstorm-gated) per Amber's fettuccine-alfredo insight.
+
 ### Tasks
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 1 | Write detailed Phase 4 plan + security audit; get Amber's approval | ⬜ Not started | **← start here.** Cover: page structure (separate `pages/` from the scorer), author + label-from-log flows, Contract-4 CSV write, log reader, no-DB guardrail, access note for future public deploy |
-| 2 | Log reader: browse/paginate `data/logs/*.jsonl` (read-only) | ⬜ Not started | reuse `log.py` format; no new persistence layer |
-| 3 | Author mode: recipe → optional pre-score (`score_recipe`) → editable Contract-4 golden row → append to `golden_set.csv` | ⬜ Not started | Contract 4 columns verbatim (see llm_contracts). **Labels are human-owned — Claude ships UI + template, never invents labels/weights** |
-| 4 | Label-from-log mode: pick a logged verdict → correct into a golden row + swap-quality grade | ⬜ Not started | |
-| 5 | Pause for Amber's manual test (build a few real golden rows end-to-end) | ⬜ Not started | |
-| 6 | Merge gates: `/verify` + code-review + `/security-review`; merge to main | ⬜ Not started | security focus: the console surfaces all logged inputs |
-| 7 | Phase 4 retrospective → log pitfalls → refresh this doc for Phase 5 | ⬜ Not started | |
+| 1 | Write Phase 4 plan + security audit; approval | ✅ Done | v1 approved 2026-07-12; **v2 pipeline approved 2026-07-13** after manual-test feedback |
+| 2 | Log reader (read-only) | ✅ Done | `read_log`/`list_log_files` in `log.py`; Logs tab paginates 20/page, tolerant of malformed lines |
+| 3 | Backlog: queue recipes (paste **or link**) → `backlog.jsonl`; submit-for-review | ✅ Done | link fetches via parse.py SSRF guard; ids unique across golden+backlog+drafts |
+| 4 | Draft pipeline: `GoldenDraft` shape + handoff doc + Review&grade queue + Promote | ✅ Done | separate instance drafts (`golden_draft_handoff.md`); review = swap_quality+notes primary, band/score/swaps editable; promote appends approved → `golden_set.csv` (append-only kept) |
+| 5 | Pause for Amber's manual test (end-to-end: queue → draft → grade → promote) | 🟡 **← waiting on Amber** | `streamlit run console.py`; then run the handoff in a separate instance on a couple of real recipes |
+| 6 | Merge gates: `/verify` + code-review + `/security-review`; merge to main | ⬜ Not started | security focus: console surfaces all logged inputs; untrusted strings via non-markdown widgets only |
+| 7 | Phase 4 retrospective → log pitfalls → refresh this doc for Phase 5 | ⬜ Not started | pyarrow-segfault pitfall already logged; capture the "author→grade" pivot lesson |
 
 ### Definition of done (Phase 4)
-Amber can open the console locally, author golden rows from recipes (and correct logged verdicts into rows), and export a Contract-4 `golden_set.csv` — enough to start assembling the 20–50-row golden set. No new persistence layer; unit tests green; docs in sync; merged to main.
+Amber can open the console locally, queue recipes into a backlog, hand the batch to a separate Claude instance that drafts labels, grade/correct those drafts (swap_quality + notes), and promote approved rows into a Contract-4 `golden_set.csv` — enough to assemble the 20–50-row golden set. No new persistence layer (thin JSONL/CSV); unit tests green; docs in sync; merged to main.
 
 ### Decisions carried in
 - **Console before deploy** (decided 2026-07-11): the golden set is the human long-pole gating evals; author mode needs no live traffic, so it isn't blocked by deploy. Order: 3 scorer → **4 console** → 5 deploy → 6 evals → 7 explainability.
 - **Thin JSONL/CSV front-end** — reads the append-only log, writes golden rows to CSV. No DB/auth/vector store unless an eval number (or public console deploy) demands it (architecture 2026-07-11).
 - **Golden labels + rubric weights are human-owned** (CLAUDE.md non-negotiable): the console is Amber's labeling tool; Claude never fills in target bands/scores/weights.
-- Likely shape: a separate Streamlit page under `pages/`, distinct from the user-facing scorer (`app.py`).
-- **Fan-out check** (2026-07-12 rule): decide at planning time whether the two modes are independent enough to build as parallel worktree agents, or one cohesive page built solo. Note the call in the plan.
+- ~~Likely shape: a separate Streamlit page under `pages/`~~ → **Decided in the approved plan: root-level `console.py`, its own entrypoint, NO `pages/` dir** — `pages/` auto-attaches to the deployed entrypoint and would have exposed all logged recipes on the Phase 5 public deploy (architecture 2026-07-12).
+- **Fan-out check** (2026-07-12 rule): **called solo** in the approved plan — author and label-from-log share the golden-row form, validation, and write path; not independent tracks.
 
 ### Environment reminders (from pitfalls)
 - Import name is `clean_recipe`, NOT `cocoonkitchen`.
@@ -43,13 +45,22 @@ Amber can open the console locally, author golden rows from recipes (and correct
 - When changing the model-I/O contract, walk the full blast radius (prompt + `_REPAIR_HINT` + all callers' `except` + validators) — see 2026-07-12 pitfall.
 
 ### Blockers
-- None. Scorer (`app.py`) + core are merged and verified. `data/logs/verdicts.jsonl` already accumulates real verdicts to label from.
+- **Task 5: Amber's manual test.** Everything through task 4 is built and green (156 tests) on `phase-4/console`; merge gates run after her pass.
 
 ### Handoff notes for next session
-- Phase 3 merged to main (commit `4a2ff15`, merge `c1d2b76`), manually verified by Amber. Scorer UI is `app.py`; the core is `parse_recipe`/`score_recipe`.
-- `log.py` already appends every verdict to `data/logs/verdicts.jsonl` (gitignored) — the label-from-log source. Contract 4 (golden-row format) is in `llm_contracts.md`.
-- Deferred (from Phase 2, still open): Contract 4's `raw_ingredients` "path to a text file" option isn't implemented in `evaluate.py` (only inline `"; "`-separated); confirm with Amber when real labels land. Per-component MAE + swap-quality metrics await golden columns.
-- Start by drafting the Phase 4 plan and presenting it for approval.
+- **2026-07-14 — Contract 4 v0.2 → v0.3 (draft-review feedback, on `phase-4/console`, not yet committed).** Amber's mid-labeling feedback drove three changes (her plan items 1–3):
+  1. **`other_alternatives` column** (last position) for flagged items that get **no** swap — structured `GoldenRow.concerns` (`list[Concern]` of `item`/`why`/`alternatives`); CSV cell uses the `item>why>alt, alt; …` micro-format (`format_concerns`/`parse_concerns`, defanged like `expected_swaps`). Console renders concerns as a read-only "items of concern → alternatives" table (with a `suggestion: no swap` column) and has an edit field in the adjust-labels expander.
+  2. **Axis doctrine** in `llm_contracts.md` Contract 4 — swaps state their axis (less-processed primary / healthier / sourcing). Labeling convention, not a scoring rule; does NOT edit rubric weights.
+  3. **Collapsed v1-history block** — `GoldenDraft.review` (`ReviewNote`, console-internal, NOT Contract 4) holds a superseded draft + Amber's verbatim feedback; console shows it in an expander instead of a notes wall.
+  - **`golden_drafts.jsonl` migrated** (scratchpad `migrate_drafts_v3.py`; backups `.bak-pre-v2`, `.bak-pre-v3`): 29 draft rows moved concern/history prose out of `notes` into structured fields. **The 17 approved rows were left untouched per Amber's explicit instruction** — they still carry the v2 prose in `notes` and have empty `concerns` (offer to migrate them later, her opt-in). No label (band/score/swaps/swap_quality) changed on any row.
+  - **Status when handed off:** 17/52 approved, 35 draft (2 of those carry a `review` block: raspberry-bread grade 4, paccheri no-grade). 202 tests green (3× full runs, no pyarrow segfault). **Not committed — awaiting Amber's manual test** of the console (concerns render/edit, history block, promote carries `other_alternatives`).
+- **v2 pipeline is complete on `phase-4/console`** (2026-07-13). `console.py` now has 5 tabs — **Backlog / Review & grade / Promote / Logs / Results** (the v1 Author + Label-from-log tabs are gone). `src/clean_recipe/golden.py` holds the Contract-4 shape (`GoldenRow`, `load_golden`, append-only `append_golden_row`) **plus** the pipeline shapes `BacklogEntry` / `GoldenDraft` and helpers (`read/write_backlog`, `read/write/append_draft`, `promote_approved`, `suggest_recipe_id`). Tolerant reader in `log.py`. Handoff brief for the draft-generating instance: `ai_docs/golden_draft_handoff.md`.
+- **The full loop:** Amber queues recipes in Backlog → submits → **a separate Claude instance** runs `golden_draft_handoff.md` (reads `evals/backlog.jsonl`, real-scores each, drafts labels → `evals/golden_drafts.jsonl`) → Amber grades in Review & grade → Promote appends approved rows → `evals/golden_set.csv`.
+- **Env pin (pitfall logged):** `pyproject.toml` pins `pyarrow==21.0.0` + `pandas==2.3.3` (pyarrow 25 segfaults `st.dataframe`). Re-run `pip install -e ".[dev]"` on stale venvs.
+- **Manual test for Amber:** `streamlit run console.py` → Backlog: add a recipe by paste and by link (link now really fetches), submit → open a separate Claude instance on `golden_draft_handoff.md` for a couple of recipes → Review & grade (set swap_quality + notes, Approve) → Promote → eyeball `golden_set.csv`. Delete the `sample-*` template rows when real labels land.
+- **New files are committed (not gitignored):** `evals/backlog.jsonl` + `evals/golden_drafts.jsonl` hold real review work (grades) — 0-data-loss. They're created on first write.
+- Roadmap: **Phase 8 — "cleaner spectrum"** added (tiered alternatives; needs a brainstorming session before it's scoped — Amber's call on when).
+- Deferred (unchanged): Contract 4's `raw_ingredients` file-path option (console always writes inline `"; "`); per-component MAE + automated swap judging remain Phase 6.
 
 ---
 

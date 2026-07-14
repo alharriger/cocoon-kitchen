@@ -7,10 +7,11 @@ score, band, flagged ingredients, and 3 swaps. Streamlit UI + eval harness, both
 importing one pure core: `score_recipe(title, ingredients) -> Verdict`.
 
 ## Status
-Phase 3 — local Streamlit UI on top of the core engines (parse → score → Verdict card). Not deployed yet.
+Phase 4 — observability & labeling console (the golden-set builder) on top of the Phase 3 scorer UI. Not deployed yet.
 
 ## Layout
 - `app.py` — Streamlit UI (thin consumer of the core)
+- `console.py` — golden-set builder console (`streamlit run console.py`, **local only — never deploy**): queue recipes → draft (via `ai_docs/golden_draft_handoff.md`) → grade → promote to `golden_set.csv`
 - `src/clean_recipe/` — pure, UI-agnostic core (`parse.py`, `score.py`, `schema.py`, `log.py`, …)
 - `rubric/` — `rubric.yaml` (machine) + `rubric.md` (human). **Human-owned; placeholder weights.**
 - `evals/` — golden set + eval harness (later phases)
@@ -28,6 +29,7 @@ pytest
 ```bash
 cp .env.example .env       # add your LLM key (dev default: z.ai GLM-4.5-Flash)
 streamlit run app.py       # opens at http://localhost:8501
+streamlit run console.py   # internal labeling console (local only)
 ```
 
 This repo ships a direnv `.envrc` that auto-activates `.venv` when you `cd` in, so

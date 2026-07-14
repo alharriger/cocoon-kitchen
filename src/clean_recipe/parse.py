@@ -42,6 +42,29 @@ _ALLOWED_SCHEMES = {"http", "https"}
 # guard. Deliberately generous to avoid rejecting real recipes; the scorer's
 # is_recipe judgment (score.py) is the semantic backstop for subtler junk.
 _MAX_INGREDIENT_LINE = 250
+
+# Real copy-pasted recipe text carries page furniture around the ingredient list
+# (a heading, "Deselect All", section sub-labels, and the whole directions
+# section). These three sets drive a forgiving cleaner (``clean_ingredient_lines``)
+# so a paste straight off a recipe site becomes a clean ingredient list. Matching
+# is case-insensitive on the normalized line. Deliberately conservative: on
+# already-clean input the cleaner is a no-op, and it never removes a line that
+# carries a quantity (a digit).
+_PASTE_NOISE_LINES = frozenset({
+    "ingredients", "deselect all", "select all", "get ingredients",
+    "add to shopping list", "add to list", "shopping list",
+    "save recipe", "print recipe", "advertisement",
+})
+# A line whose text (minus a trailing ":") is one of these starts a section that
+# is never part of the ingredient list — the paste is truncated here.
+_PASTE_STOP_HEADERS = frozenset({
+    "directions", "instructions", "method", "methods", "preparation",
+    "steps", "procedure", "cook's note", "cooks note", "cook's notes",
+    "notes", "nutrition", "nutrition facts", "nutrition information",
+    "special equipment",
+})
+_MAX_SECTION_LABEL_LEN = 40
+
 _FETCH_TIMEOUT = 10  # seconds, connect + read
 _MAX_BYTES = 2 * 1024 * 1024  # 2 MiB response cap
 _MAX_REDIRECTS = 5
@@ -72,6 +95,55 @@ class ParseError(RuntimeError):
 def _normalize_line(line: str) -> str:
     """Strip ends and collapse internal runs of whitespace to single spaces."""
     return " ".join(line.split())
+
+
+def _is_stop_header(line: str) -> bool:
+    """True if ``line`` starts a directions/notes section (ingredients end here)."""
+    return line.rstrip(":").strip().lower() in _PASTE_STOP_HEADERS
+
+
+def _is_section_label(line: str) -> bool:
+    """True for a sub-heading like "Sauce:" — ends with ":", short, no quantity."""
+    s = line.strip()
+    return (
+        s.endswith(":")
+        and len(s) <= _MAX_SECTION_LABEL_LEN
+        and not any(c.isdigit() for c in s)
+    )
+
+
+def clean_ingredient_lines(lines: list[str]) -> list[str]:
+    """Drop recipe-page furniture from pasted ingredient lines.
+
+    Removes heading/UI noise ("Ingredients", "Deselect All", …) and section
+    sub-labels ("Sauce:"), and truncates at the first directions/notes header —
+    so a block copied straight off a recipe site becomes just the ingredients.
+    A no-op on already-clean input (no furniture → nothing removed). ``lines``
+    must already be normalized (see ``_normalize_line``).
+    """
+    cleaned: list[str] = []
+    for line in lines:
+        if _is_stop_header(line):
+            break
+        if line.strip().lower() in _PASTE_NOISE_LINES:
+            continue
+        if _is_section_label(line):
+            continue
+        cleaned.append(line)
+    return cleaned
+
+
+def _reject_prose(ingredients: list[str]) -> None:
+    """Raise if any line is long enough to read as prose, not an ingredient.
+
+    The cheap non-recipe guard (a pasted article/job-posting has long lines):
+    kept on the scorer's paste path so junk fails loud before a model call.
+    """
+    if any(len(line) > _MAX_INGREDIENT_LINE for line in ingredients):
+        raise ParseError(
+            "this looks more like prose than a recipe. Paste a title line, then "
+            "one ingredient per line."
+        )
 
 
 # ---- SSRF guard -------------------------------------------------------------
@@ -286,19 +358,48 @@ def _scrape_recipe(html: str, url: str) -> ParsedRecipe:
 # ---- paste ------------------------------------------------------------------
 
 def _parse_pasted(text: str) -> ParsedRecipe:
-    """First non-empty line = title, remaining non-empty lines = ingredients."""
+    """First non-empty line = title, remaining non-empty lines = ingredients.
+
+    The ingredient lines are run through ``clean_ingredient_lines`` so recipe-page
+    furniture pasted along with the recipe (a "Directions" section, section
+    sub-labels) is dropped; the prose guard still rejects a non-recipe blob.
+    """
     lines = [norm for raw in text.splitlines() if (norm := _normalize_line(raw))]
     if not lines:
         raise ParseError("pasted recipe is empty")
-    title, ingredients = lines[0], lines[1:]
+    title, rest = lines[0], lines[1:]
+    ingredients = clean_ingredient_lines(rest)
     if not ingredients:
         raise ParseError(
             "pasted recipe needs a title line and at least one ingredient line"
         )
-    if any(len(line) > _MAX_INGREDIENT_LINE for line in ingredients):
+    _reject_prose(ingredients)
+    return ParsedRecipe(title=title, ingredients=ingredients, source="pasted")
+
+
+def parse_pasted_ingredients(title: str, text: str) -> ParsedRecipe:
+    """Build a ParsedRecipe from a separate title + a pasted ingredient block.
+
+    For the console's backlog, where the title is its own field and ``text`` is a
+    block copied off a recipe site (which usually has no title line and plenty of
+    furniture). Furniture is stripped via ``clean_ingredient_lines``; unlike the
+    scorer's paste path this is lenient about over-long lines — it drops them
+    (they're stray directions/notes) rather than failing, because the console
+    shows the result in an editable preview for a human to fix. Raises ParseError
+    only when there is no title or nothing ingredient-like at all.
+    """
+    title = _normalize_line(title)
+    if not title:
+        raise ParseError("add a recipe title")
+    lines = [norm for raw in text.splitlines() if (norm := _normalize_line(raw))]
+    ingredients = [
+        line for line in clean_ingredient_lines(lines)
+        if len(line) <= _MAX_INGREDIENT_LINE
+    ]
+    if not ingredients:
         raise ParseError(
-            "this looks more like prose than a recipe. Paste a title line, then "
-            "one ingredient per line."
+            "couldn't find an ingredient list in that paste — paste the "
+            "ingredients, one per line"
         )
     return ParsedRecipe(title=title, ingredients=ingredients, source="pasted")
 
