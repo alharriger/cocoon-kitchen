@@ -137,6 +137,52 @@ def _render_model_verdict(verdict: Verdict) -> None:
                  hide_index=True)
 
 
+def _render_drafted_concerns(row: golden.GoldenRow) -> None:
+    """Read-only view of the drafted items-of-concern (flagged, no swap offered).
+
+    These are Contract-4 v0.3 concerns: a flagged ingredient the draft
+    deliberately does NOT swap, with alternatives the cook could consider. Shown
+    via a safe (non-markdown) dataframe; the 'suggestion' column makes the
+    no-swap stance explicit."""
+    if not row.concerns:
+        return
+    st.caption("Items of concern — flagged, but no swap suggested (other alternatives noted)")
+    st.dataframe(
+        [
+            {"item of concern": c.item, "why": c.why, "suggestion": "no swap",
+             "other alternatives": ", ".join(c.alternatives)}
+            for c in row.concerns
+        ],
+        hide_index=True,
+    )
+
+
+def _render_review_history(review: golden.ReviewNote | None) -> None:
+    """Collapsed history block: a superseded draft + Amber's verbatim v1 feedback.
+
+    All untrusted strings go through st.text/st.caption (no markdown/html)."""
+    if review is None:
+        return
+    with st.expander("↩︎ Earlier draft & your v1 feedback"):
+        if review.comment:
+            st.caption("Your v1 feedback")
+            st.text(review.comment)
+        bits = []
+        if review.superseded_target_band:
+            bits.append(f"band {review.superseded_target_band}")
+        if review.superseded_target_score is not None:
+            bits.append(f"score {review.superseded_target_score}")
+        if review.prior_swap_grade is not None:
+            bits.append(f"your v1 swap grade {review.prior_swap_grade}")
+        if bits:
+            st.caption("Superseded v1 draft")
+            st.text(" · ".join(bits))
+        if review.superseded_expected_swaps:
+            st.text(f"swaps: {review.superseded_expected_swaps}")
+        if review.superseded_notes:
+            st.text(review.superseded_notes)
+
+
 # ---- tab: backlog ------------------------------------------------------------
 
 def _parse_for_preview() -> None:
@@ -314,6 +360,15 @@ def _save_draft(drafts: list[golden.GoldenDraft], idx: int, *, approve: bool) ->
         st.error("Set both a target band and a target score before saving.")
         return
     try:
+        concerns = golden.parse_concerns(ss.get(f"g_{rid}_concerns") or "")
+    except ValueError as e:
+        st.error(
+            "Couldn't save — fix the items-of-concern field "
+            "(each concern is `item>why>alt, alt`, segments separated by `;`):"
+            f"\n\n{e}"
+        )
+        return
+    try:
         new_row = golden.GoldenRow(
             recipe_id=rid,
             source=(ss.get(f"g_{rid}_source") or "").strip() or "pasted",
@@ -324,6 +379,7 @@ def _save_draft(drafts: list[golden.GoldenDraft], idx: int, *, approve: bool) ->
             expected_swaps=ss.get(f"g_{rid}_swaps") or "",
             swap_quality=ss.get(f"g_{rid}_quality"),
             notes=ss.get(f"g_{rid}_notes") or "",
+            concerns=concerns,
         )
     except ValidationError as e:
         st.error(
@@ -363,6 +419,7 @@ def _review_tab() -> None:
     rid = draft.row.recipe_id
 
     st.caption(f"Draft {idx + 1} of {n} · {n_approved} approved · this one: {draft.status}")
+    _render_review_history(draft.review)
 
     with st.container(border=True):
         st.subheader(draft.row.title or rid)
@@ -372,6 +429,7 @@ def _review_tab() -> None:
             _render_model_verdict(draft.model_verdict)
         else:
             st.caption("No model verdict was captured for this draft.")
+        _render_drafted_concerns(draft.row)
 
     st.markdown("#### Your grade")
     st.selectbox(
@@ -405,6 +463,14 @@ def _review_tab() -> None:
         st.text_input(
             "Expected swaps (from>to; from>to)",
             value=draft.row.expected_swaps, key=f"g_{rid}_swaps",
+        )
+        st.text_area(
+            "Items of concern — flagged, no swap (item>why>alt, alt; …)",
+            value=golden.format_concerns(draft.row.concerns),
+            key=f"g_{rid}_concerns", height=80,
+            help="Flagged ingredients you're deliberately NOT swapping. One "
+                 "concern per segment: item>why>alternative, alternative — "
+                 "separate segments with a semicolon.",
         )
         st.text_input("Title", value=draft.row.title, key=f"g_{rid}_title")
         st.text_area(
@@ -447,6 +513,7 @@ def _promote_tab() -> None:
                 {"recipe_id": d.row.recipe_id, "title": d.row.title,
                  "band": d.row.target_band, "score": d.row.target_score,
                  "swap_quality": d.row.swap_quality,
+                 "concerns": len(d.row.concerns),
                  "in golden set": d.row.recipe_id in already}
                 for d in approved
             ],

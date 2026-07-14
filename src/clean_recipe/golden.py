@@ -43,6 +43,7 @@ GOLDEN_COLUMNS = [
     "expected_swaps",
     "swap_quality",
     "notes",
+    "other_alternatives",  # v0.3: flagged-but-not-swapped items + alternatives
 ]
 
 # Cells starting with these run as formulas when the CSV is opened in a
@@ -50,8 +51,34 @@ GOLDEN_COLUMNS = [
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 
+class Concern(BaseModel):
+    """One flagged ingredient that gets NO swap, plus alternatives to consider.
+
+    Contract 4 v0.3. Where ``expected_swaps`` records "flagged → do this instead",
+    a Concern records "flagged, but we're deliberately not swapping it — here's
+    why, and here are other alternatives if you want to go further." The item is
+    of concern, the suggestion is *no swap*, and ``alternatives`` is the
+    other-alternatives column the human can browse. This is the labeling-time
+    seed of the Phase 8 "cleaner spectrum".
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    item: str = Field(min_length=1)          # the flagged ingredient
+    why: str = Field(min_length=1)           # one line: why it's of concern
+    alternatives: list[str] = Field(min_length=1)  # other options (no primary swap)
+
+    @field_validator("alternatives")
+    @classmethod
+    def _nonempty_alternatives(cls, v: list[str]) -> list[str]:
+        cleaned = [a.strip() for a in v if a.strip()]
+        if not cleaned:
+            raise ValueError("a Concern needs at least one alternative")
+        return cleaned
+
+
 class GoldenRow(BaseModel):
-    """One validated golden-set row (Contract 4 v0.2)."""
+    """One validated golden-set row (Contract 4 v0.3)."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -64,6 +91,7 @@ class GoldenRow(BaseModel):
     expected_swaps: str = ""  # "from>to; from>to", or blank
     swap_quality: int | None = Field(default=None, ge=1, le=5)
     notes: str = ""
+    concerns: list[Concern] = Field(default_factory=list)  # v0.3; CSV column "other_alternatives"
 
     @field_validator("raw_ingredients")
     @classmethod
@@ -121,6 +149,44 @@ def format_swaps(swaps: list[Swap]) -> str:
     )
 
 
+def format_concerns(concerns: list[Concern]) -> str:
+    """Render concerns as the ``other_alternatives`` cell: ``item>why>alt, alt; …``.
+
+    Mirrors the ``expected_swaps`` micro-format: ``;`` separates concerns, ``>``
+    separates the three fields (item, why, alternatives), and the alternatives
+    are ``, ``-joined inside the third field. ``>`` and ``;`` are defanged out of
+    every field so the cell stays parseable; ``,`` is preserved in item/why (only
+    the alternatives list is comma-split) so a natural-language "why" survives.
+    """
+    return "; ".join(
+        f"{_defang_name(c.item)}>{_defang_name(c.why)}>"
+        + ", ".join(_defang_name(a) for a in c.alternatives)
+        for c in concerns
+    )
+
+
+def parse_concerns(raw: str) -> list[Concern]:
+    """Parse an ``other_alternatives`` cell back into Concerns; fail loud on junk.
+
+    A blank cell is no concerns. Each ``;``-separated segment must be exactly
+    ``item>why>alt[, alt…]`` (two ``>``), matching ``format_concerns``.
+    """
+    concerns: list[Concern] = []
+    for segment in raw.split(";"):
+        segment = segment.strip()
+        if not segment:
+            continue  # tolerate a trailing/doubled semicolon
+        parts = segment.split(">")
+        if len(parts) != 3:
+            raise ValueError(
+                f"other_alternatives segment {segment!r} is not 'item>why>alt, alt'"
+            )
+        item, why, alts = (p.strip() for p in parts)
+        alternatives = [a.strip() for a in alts.split(",") if a.strip()]
+        concerns.append(Concern(item=item, why=why, alternatives=alternatives))
+    return concerns
+
+
 def defang_cell(value: str) -> str:
     """Neutralize spreadsheet formula injection with a leading space.
 
@@ -160,6 +226,7 @@ def load_golden(path: Path | str) -> list[GoldenRow]:
                             else None
                         ),
                         notes=cells["notes"],
+                        concerns=parse_concerns(cells["other_alternatives"]),
                     )
                 )
             except (ValidationError, ValueError) as e:
@@ -240,6 +307,7 @@ def append_golden_row(row: GoldenRow, path: Path | str) -> int:
         row.expected_swaps,
         "" if row.swap_quality is None else str(row.swap_quality),
         row.notes,
+        format_concerns(row.concerns),
     ]
     with path.open("a", newline="", encoding="utf-8") as f:
         if needs_newline:
@@ -282,18 +350,41 @@ class BacklogEntry(BaseModel):
         return join_ingredients(self.ingredients)
 
 
+class ReviewNote(BaseModel):
+    """A superseded draft version + the human feedback that prompted the revision.
+
+    Working state on ``GoldenDraft`` (NOT part of Contract 4 — it never reaches
+    ``golden_set.csv``). When a draft is re-drafted after Amber's review, the
+    prior labels + her verbatim comment are captured here so the console can show
+    the history in a collapsed block instead of a wall of notes text, and so her
+    original swap grade isn't lost when the swaps are re-proposed.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    comment: str = ""                            # Amber's verbatim v1 feedback
+    prior_swap_grade: int | None = Field(default=None, ge=1, le=5)
+    superseded_target_band: str = ""
+    superseded_target_score: int | None = None
+    superseded_expected_swaps: str = ""
+    superseded_notes: str = ""
+
+
 class GoldenDraft(BaseModel):
     """One draft golden row awaiting Amber's review (a row of golden_drafts.jsonl).
 
     ``row`` is the proposed Contract-4 label (drafted by the separate instance,
     fully editable by Amber — she owns the final label). ``model_verdict`` is the
     real model output captured at draft time, shown read-only so she can grade the
-    model's swaps into ``row.swap_quality``. ``status`` gates promotion.
+    model's swaps into ``row.swap_quality``. ``status`` gates promotion. ``review``
+    (optional) carries a superseded version + her feedback when a draft has been
+    re-drafted, for the console's collapsed history block.
     """
 
     row: GoldenRow
     model_verdict: Verdict | None = None
     status: Literal["draft", "approved"] = "draft"
+    review: ReviewNote | None = None
 
 
 def _read_jsonl(path: Path | str, model: type[BaseModel]) -> tuple[list, int]:

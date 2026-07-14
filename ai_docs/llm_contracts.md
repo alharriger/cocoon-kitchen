@@ -48,7 +48,7 @@ Built by `prompt.py` from rubric.yaml + normalized ingredients. Requirements:
 
 This is the contract between the human's labeling work and the eval harness. `evals/golden_set.csv` ships with exactly these columns (+ 2–3 example rows) so hand-labeling drops straight in. **Human-owned** — Claude ships the template and samples, never the real labels.
 
-**Format version: v0.2.** The row shape lives in code in `src/clean_recipe/golden.py` (`GOLDEN_COLUMNS` + `GoldenRow`) — the single source of truth imported by both the eval harness (`evals/evaluate.py`) and the labeling console (`console.py`).
+**Format version: v0.3.** The row shape lives in code in `src/clean_recipe/golden.py` (`GOLDEN_COLUMNS` + `GoldenRow`) — the single source of truth imported by both the eval harness (`evals/evaluate.py`) and the labeling console (`console.py`).
 
 | Column | Meaning |
 |---|---|
@@ -61,6 +61,11 @@ This is the contract between the human's labeling work and the eval harness. `ev
 | `expected_swaps` | `from>to; from>to` (semicolon-separated) |
 | `swap_quality` | human 1–5 grade of the model's swaps for this recipe; blank = not graded (v0.2) |
 | `notes` | why / where it's ambiguous |
+| `other_alternatives` | flagged items that get **no** swap, each with alternatives to consider (v0.3). Micro-format: `item>why>alt, alt; item2>why2>alt3` — `;` separates concerns, `>` separates the three fields, alternatives are `, `-joined inside the third field. Blank = no such items. |
+
+Where `expected_swaps` records "flagged → do this instead", `other_alternatives` records "flagged, but deliberately **not** swapping it — here's why, and here are options if you want to go further." It is the labeling-time seed of the Phase 8 "cleaner spectrum". In code this is the structured `GoldenRow.concerns` (`list[Concern]`, each `item`/`why`/`alternatives`); the micro-format is only the CSV serialization.
+
+**Swap-reasoning axes (labeling convention, not yet a scoring rule).** Every swap and every listed alternative names *why* it's cleaner along one axis: **less processed** (the primary axis — the score measures processing), **healthier** (nutrition: fat, sodium, sugar — the secondary axis), or **better sourcing** (e.g. block cheese vs. pre-shredded — the tiebreaker). When axes conflict, less-processed leads. This convention keeps the reasoning legible and comparable across rows; it is a drafting/review discipline pending rubric validation in Phase 6, and does **not** edit rubric weights or band cutoffs (those stay human-owned). Concrete preferences captured during labeling (fresh-aisle cheese is fine, no "halve it" swaps, the homemade→veggie→legume pasta ladder, honey as an accepted sweetener) live with the review feedback, not here.
 
 Target 20–50 rows spanning obviously-clean, obviously-ultra-processed, and many ambiguous middles.
 
@@ -80,6 +85,7 @@ Target 20–50 rows spanning obviously-clean, obviously-ultra-processed, and man
 - Log every contract change here: date, what changed, eval delta (band accuracy + score MAE before/after). Until real labels exist, note "pre-label change" instead of a delta.
 
 ### Change log
+- 2026-07-14 — Phase 4: **Contract 4 v0.2 → v0.3** — added the `other_alternatives` column (last position) for flagged items that get **no** swap, each with a `why` and a list of alternatives. Backed by a structured `GoldenRow.concerns` (`list[Concern]`) in `golden.py`; the CSV cell uses the `item>why>alt, alt; …` micro-format (`format_concerns`/`parse_concerns`, defanged like `expected_swaps`). Template + one sample row updated (ultra sample shows a TBHQ concern). Also added the **swap-reasoning axes** labeling convention (less-processed / healthier / sourcing) and, as console-internal working state (NOT part of this contract), `GoldenDraft.review` (`ReviewNote`) — a superseded draft + the human's verbatim feedback, so re-drafted rows show a collapsed history block instead of a wall of notes and the original swap grade isn't lost. Motivated by Amber's mid-labeling feedback (2026-07-13/14): swaps needed to state their axis, cover every flagged item or say "no swap", and stop using quantity-reduction swaps. Pre-label — no eval delta.
 - 2026-07-09 — v0.1 initial contract, from handoff plan §5. Pre-label.
 - 2026-07-10 — Phase 1: `schema.py` transcribes Contract 1 verbatim (no logic). `rubric.yaml` ships documented placeholder weights + **placeholder band cutoffs** (Clean 80–100 / Mostly Clean 60–79 / Processed 40–59 / Ultra-processed 0–39); `nova4_markers`/`refined_seed_oils`/`aliases` left empty for the human. No prompt yet. Pre-label — no eval delta.
 - 2026-07-11 — Contract 3: provider strategy set to a **neutral OpenAI-compatible seam, free-tier-first** (Gemini Flash-Lite default, Groq backup), **eval-selected** model; validate-and-retry-once discipline added. Pricing/capabilities verified across OpenAI, Gemini, DeepSeek, Qwen, GLM, Groq, Together, OpenRouter, and Claude (see `architecture.md`). Pre-label — no eval delta.

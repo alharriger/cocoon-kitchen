@@ -39,7 +39,7 @@ def seed_csv(path: Path, rows: list[golden.GoldenRow] = ()) -> Path:
 
 # ---- the contract itself -----------------------------------------------------
 
-def test_golden_columns_are_contract_4_v02():
+def test_golden_columns_are_contract_4_v03():
     assert golden.GOLDEN_COLUMNS == [
         "recipe_id",
         "source",
@@ -50,6 +50,7 @@ def test_golden_columns_are_contract_4_v02():
         "expected_swaps",
         "swap_quality",
         "notes",
+        "other_alternatives",
     ]
 
 
@@ -59,6 +60,8 @@ def test_shipped_template_validates():
     # The template demonstrates both a graded and an ungraded row.
     qualities = {r.swap_quality for r in rows}
     assert None in qualities and any(q is not None for q in qualities)
+    # …and at least one row with a v0.3 concern (flagged, no swap).
+    assert any(r.concerns for r in rows)
 
 
 # ---- GoldenRow validation ----------------------------------------------------
@@ -139,6 +142,66 @@ def test_format_swaps_output_revalidates():
     # Sanitized names keep the from>to; from>to micro-format parseable.
     assert row(expected_swaps=formatted).expected_swaps == formatted
     assert formatted == "palm oil>olive oil; odd,name, x>plain"
+
+
+# ---- concerns (Contract 4 v0.3) ----------------------------------------------
+
+def test_concern_requires_item_why_and_an_alternative():
+    with pytest.raises(ValidationError):
+        golden.Concern(item="", why="w", alternatives=["a"])
+    with pytest.raises(ValidationError):
+        golden.Concern(item="TBHQ", why="", alternatives=["a"])
+    with pytest.raises(ValidationError):
+        golden.Concern(item="TBHQ", why="preservative", alternatives=[])
+    with pytest.raises(ValidationError):
+        golden.Concern(item="TBHQ", why="preservative", alternatives=["  "])
+
+
+def test_concern_strips_blank_alternatives():
+    c = golden.Concern(item="TBHQ", why="preservative", alternatives=["rosemary extract", " "])
+    assert c.alternatives == ["rosemary extract"]
+
+
+def test_format_parse_concerns_round_trip():
+    concerns = [
+        golden.Concern(item="butter", why="structural in a quick bread",
+                       alternatives=["half butter/half applesauce", "avocado oil"]),
+        golden.Concern(item="feta", why="brine sodium, but it IS the sauce",
+                       alternatives=["rinse before whipping", "goat cheese"]),
+    ]
+    cell = golden.format_concerns(concerns)
+    assert golden.parse_concerns(cell) == concerns
+    # commas survive inside "why" (only the alternatives field is comma-split)
+    assert golden.parse_concerns(cell)[1].why == "brine sodium, but it IS the sauce"
+
+
+def test_format_concerns_defangs_delimiters():
+    # `>` / `;` in item and why would break the item>why>alt micro-format; they
+    # are defanged to `,` so the cell always re-parses. (A `>` inside an
+    # *alternative* is the same documented lossy edge as the ingredient
+    # delimiter — it splits — so keep alternatives free of `>`/`,` here.)
+    concerns = [golden.Concern(item="odd>name; x", why="rich; heavy > usual",
+                               alternatives=["olive oil", "avocado oil"])]
+    cell = golden.format_concerns(concerns)
+    reparsed = golden.parse_concerns(cell)
+    assert golden.format_concerns(reparsed) == cell  # stable
+    assert ">" not in reparsed[0].item and ";" not in reparsed[0].why
+    assert reparsed[0].alternatives == ["olive oil", "avocado oil"]
+
+
+@pytest.mark.parametrize("cell", ["", "  ", "a>b>c;", "a>b>c, d"])
+def test_parse_concerns_good_and_empty(cell):
+    golden.parse_concerns(cell)  # no raise
+
+
+@pytest.mark.parametrize("cell", ["a>b", "a", "a>b>c>d", "a>b>c; junk"])
+def test_parse_concerns_bad_formats_rejected(cell):
+    with pytest.raises(ValueError, match="other_alternatives"):
+        golden.parse_concerns(cell)
+
+
+def test_row_defaults_to_no_concerns():
+    assert row().concerns == []
 
 
 def test_suggest_recipe_id_slugs_and_suffixes():
@@ -224,6 +287,27 @@ def test_append_exact_column_order_and_round_trip(tmp_path):
 def test_append_returns_growing_count(tmp_path):
     path = seed_csv(tmp_path / "g.csv", [row()])
     assert golden.append_golden_row(row(recipe_id="test-02"), path) == 2
+
+
+def test_concerns_survive_csv_round_trip(tmp_path):
+    path = seed_csv(tmp_path / "g.csv")
+    r = row(concerns=[
+        golden.Concern(item="TBHQ", why="preservative, no clean 1:1 swap",
+                       alternatives=["rosemary extract", "mixed tocopherols (vitamin E)"]),
+        golden.Concern(item="palm oil", why="deforestation-linked",
+                       alternatives=["olive oil"]),
+    ])
+    golden.append_golden_row(r, path)
+    (loaded,) = golden.load_golden(path)
+    assert loaded == r  # concerns (incl. the comma in "why") survive the CSV cell
+
+
+def test_row_without_concerns_writes_blank_cell(tmp_path):
+    path = seed_csv(tmp_path / "g.csv")
+    golden.append_golden_row(row(), path)
+    with path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert rows[0]["other_alternatives"] == ""
 
 
 def test_append_defangs_formula_cells(tmp_path):
@@ -389,3 +473,37 @@ def test_promote_row_lands_in_contract4_shape(tmp_path):
     (loaded,) = golden.load_golden(golden_csv)
     assert loaded.recipe_id == "fettuccine-alfredo"
     assert loaded.swap_quality == 2 and loaded.expected_swaps == "a>b"
+
+
+def test_promote_carries_concerns_into_golden_csv(tmp_path):
+    golden_csv = seed_csv(tmp_path / "golden.csv")
+    d = draft(recipe_id="queso", concerns=[
+        golden.Concern(item="cheddar (8 oz)", why="the dish; fresh-grated block already",
+                       alternatives=["sharp cheddar for more flavor per ounce"])])
+    d.status = "approved"
+    golden.promote_approved([d], golden_csv)
+    (loaded,) = golden.load_golden(golden_csv)
+    assert loaded.concerns[0].item == "cheddar (8 oz)"
+    assert loaded.concerns[0].alternatives == ["sharp cheddar for more flavor per ounce"]
+
+
+def test_draft_review_note_round_trips(tmp_path):
+    path = tmp_path / "drafts.jsonl"
+    d = draft(recipe_id="raspberry")
+    d.review = golden.ReviewNote(
+        comment="Can cane sugar be swapped for honey?",
+        prior_swap_grade=4, superseded_target_band="Processed",
+        superseded_target_score=56, superseded_expected_swaps="a>b",
+        superseded_notes="old rationale",
+    )
+    golden.append_draft(d, path)
+    (loaded,), _ = golden.read_drafts(path)
+    assert loaded.review == d.review
+    # a draft without review defaults to None (backward compatible)
+    assert draft().review is None
+
+
+@pytest.mark.parametrize("grade", [0, 6])
+def test_review_note_grade_out_of_range_rejected(grade):
+    with pytest.raises(ValidationError):
+        golden.ReviewNote(prior_swap_grade=grade)

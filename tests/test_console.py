@@ -193,6 +193,53 @@ def test_review_empty_state(env):
     assert any("No drafts yet" in i.value for i in at.info)
 
 
+def draft_with_concerns(recipe_id="d-01"):
+    d = make_draft(recipe_id=recipe_id)
+    d.row.concerns = [
+        golden.Concern(item="TBHQ", why="preservative, no 1:1 swap",
+                       alternatives=["rosemary extract", "vitamin E"])]
+    d.review = golden.ReviewNote(
+        comment="cheese scored too low", prior_swap_grade=4,
+        superseded_target_band="Processed", superseded_target_score=52)
+    return d
+
+
+def test_review_prefills_concerns_and_shows_history(env):
+    golden.write_drafts([draft_with_concerns()], env.drafts)
+    at = run_console()
+    # the concern edit field is pre-filled from the structured concerns
+    assert at.text_area(key="g_d-01_concerns").value == golden.format_concerns(
+        [golden.Concern(item="TBHQ", why="preservative, no 1:1 swap",
+                        alternatives=["rosemary extract", "vitamin E"])]
+    )
+    # the collapsed history block surfaces Amber's v1 comment (safe st.text)
+    assert any("cheese scored too low" in t.value for t in at.text)
+
+
+def test_review_edit_concerns_persists(env):
+    golden.write_drafts([make_draft(recipe_id="d-01")], env.drafts)
+    at = run_console()
+    at.text_area(key="g_d-01_concerns").set_value(
+        "cheddar>fresh-aisle, it IS the dish>sharp cheddar, gruyere")
+    at.button(key="g_d-01_save").click().run()
+
+    drafts, _ = golden.read_drafts(env.drafts)
+    (c,) = drafts[0].row.concerns
+    assert c.item == "cheddar" and c.why == "fresh-aisle, it IS the dish"
+    assert c.alternatives == ["sharp cheddar", "gruyere"]
+
+
+def test_review_bad_concerns_shows_error_not_crash(env):
+    golden.write_drafts([make_draft(recipe_id="d-01")], env.drafts)
+    at = run_console()
+    at.text_area(key="g_d-01_concerns").set_value("this is not a concern format")
+    at.button(key="g_d-01_save").click().run()
+    assert not at.exception
+    assert any("items-of-concern" in e.value for e in at.error)
+    drafts, _ = golden.read_drafts(env.drafts)
+    assert drafts[0].row.concerns == [] and drafts[0].status == "draft"
+
+
 def test_review_skips_malformed_draft_line(env):
     golden.write_drafts([make_draft(recipe_id="d-01")], env.drafts)
     with env.drafts.open("a", encoding="utf-8") as f:
