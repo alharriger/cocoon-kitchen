@@ -19,7 +19,7 @@
 |---|------|--------|-------|
 | 1 | Plan Phase 6 + security audit; approval | ✅ | Approved 2026-07-16. Human/Claude split: Amber owns weights/cutoffs/marker-list *contents*/targets; Claude owns harness/diagnostics/bake-off/docs. |
 | 2 | **Diagnostic harness upgrade** | ✅ | `evaluate.py`: captures the 6 model sub-scores/row; prints per-band accuracy + band-confusion (cleaner/harsher) + mean signed error + **`subscore_means`** (the lever-finder) + per-row progress heartbeat. Results CSV gains `signed_error` + 6 sub-score cols. 210 tests. Gates: code-review (1 low → fixed: `BANDS`↔`schema.Band` sync assert), security-review clean. **Committed on `phase-6/evals`.** |
-| 3 | **Populate rubric lexicons** (I draft, Amber curates) | ⬜ | **← NEXT.** Expand `rubric.yaml` from 2 marker lists → per-dimension lexicons (NOVA-4, seed oils, added-sugar aliases, sodium/preservative, additive) + `prompt.py` injection. Claude drafts candidates from public sources; **Amber curates/approves every list** (human-owned). Then re-run + report the delta. |
+| 3 | **Populate rubric lexicons** (I draft, Amber curates) | ⬜ | **← NEXT — starts in a FRESH Claude instance; do the full loop there (plan → Amber approval → build + tests → manual test → fix → commit → retro).** Expand `rubric.yaml` from 2 marker lists → per-dimension lexicons + `prompt.py` injection. Claude drafts candidates from public sources; **Amber curates/approves every list** (human-owned). Then re-run + report the delta. See "Task 3 kickoff" block below for the proposed shape + Amber's decisions. |
 | 4 | Bargain-model bake-off | ⬜ | Run the tuned rubric across GLM/Gemini/Groq/DeepSeek/Qwen (`--model`). **Needs Amber's API keys** for the non-GLM providers. Recommend eval-selected default (never by brand). |
 | 5 | Regression tracking + docs | ⬜ | Persist each run's headline numbers + rubric version; keep `llm_contracts.md`/architecture/product in sync. Sets up Phase 7's "no regression" gate. |
 | 6 | Merge gates + merge to main | ⬜ | |
@@ -30,6 +30,21 @@ Band accuracy / MAE meet Amber's targets on the 52-row set; a bake-off run with 
 
 ### Why the baseline can't be fixed by weights alone (the key finding)
 The composite score/band are **computed in code** from `rubric.yaml` weights; the six **sub-scores come from the model**. `subscore_means` shows every dimension averaging **69–89** — uniformly generous. No convex combination of 69–89 produces a Processed-band composite, so **weight-tuning can't fix leniency.** The lever is the **empty marker lists** (they ground the model's sub-scores in the prompt). See architecture decision **2026-07-17**.
+
+### Task 3 kickoff (for the fresh instance) — read this first
+Amber is starting Task 3 in a **new Claude instance**; run the full loop there (plan → approval → build → manual test → retro). What's already settled vs. open:
+- **Approach (settled, Amber 2026-07-16):** "I draft, you curate." Claude drafts candidate marker lists from public sources; **Amber curates/approves every list** — the contents are human-owned. Curated **in-prompt lexicon, NOT RAG** (architecture 2026-07-17).
+- **Draft size (settled, Amber 2026-07-17):** **draft BROAD** — generous lists (common + less-common markers) so Amber mostly *cuts*. "Easier to cut than add." (Same spirit as the swap-drafting feedback memory.)
+- **Proposed schema shape (PROPOSED, not yet approved — the next instance should confirm with Amber in its plan):** expand `rubric.yaml` to one lexicon per punishable dimension —
+  - `nova4_markers` → ultra_processing (exists, empty)
+  - `refined_seed_oils` → fat_quality (exists, empty)
+  - `added_sugar_markers` → added_sugar (NEW; ~60 sugar aliases)
+  - `sodium_preservative_markers` → sodium_preservatives (NEW; nitrites, benzoates, …)
+  - `additive_markers` → additive_count (NEW; colors, emulsifiers, carrageenan, …)
+  - `aliases` → canonicalization (exists, empty)
+- **Open question for the plan:** whether to also ground `whole_food_ratio` with a `whole_food_whitelist` (fuzzy/large — proposed to skip unless a number demands it).
+- **Blast radius when the shape lands:** new `rubric.yaml` keys must be rendered in `prompt.py` `_rubric_reference`, and the prompt change logged in `llm_contracts.md` (Contract 3). This is a model-I/O contract change — walk the blast radius (2026-07-12 pitfall). The model's sub-scores *should* shift down for processed items — that's the whole point; measure with `evaluate.py` before/after.
+- **Measurement discipline:** re-run `.venv/bin/python evals/evaluate.py` after each curation pass; compare `subscore_means` + band accuracy. Mind the ~2pp / ~1 MAE noise floor (temperature=0 still varies).
 
 ### Decisions carried in (Phase 6)
 - **Marker lists = curated in-prompt lexicon, NOT RAG** (architecture 2026-07-17, Amber). Bounded well-known vocab fits in the prompt; no vector store. External nutrition-DB/product lookup is **deferred + eval-gated** (product roadmap Phase 9 — not approved).
@@ -50,8 +65,8 @@ The composite score/band are **computed in code** from `rubric.yaml` weights; th
 - **Task 4 (bake-off)** needs Amber's API keys for the non-GLM providers (Gemini/Groq/DeepSeek/Qwen). Not blocking Task 3.
 
 ### Handoff notes for next session
-- **Phase 6 Task 2 (diagnostics) is committed on `phase-6/evals`.** `evaluate.py` now prints the lever-finder; run it to see the current numbers.
-- **Task 3 is the live work:** draft the per-dimension marker lexicons for Amber to curate, wire them into `rubric.yaml` + `prompt.py`, re-run to measure the delta. Loop → approve → build applies (the lexicon-schema expansion is a code change; get Amber's nod on the shape before mass-drafting).
+- **Phase 6 Task 2 (diagnostics) is DONE — committed `f35fe05` on `phase-6/evals`, retro complete, no new pitfalls.** `evaluate.py` now prints the lever-finder; run `.venv/bin/python evals/evaluate.py` to see the current numbers. Branch is NOT merged (Phase 6 incomplete); it stays open through Task 6.
+- **Task 3 is the live work and starts in a fresh Claude instance** (Amber's call, 2026-07-16) — do the full loop there. **Read the "Task 3 kickoff" block above first**: approach + draft-size are settled, the schema shape is proposed-not-approved (confirm in the plan). Draft the per-dimension marker lexicons broad for Amber to curate, wire into `rubric.yaml` + `prompt.py`, log the Contract-3 prompt change, re-run to measure the delta.
 - **Golden-set coverage caveat:** extremes are thin — only **3 Ultra-processed** and **8 Clean** rows (29 Mostly Clean). If tuning signal is weak at the ends, Amber may queue a few more clearly-clean / clearly-ultra-processed recipes via the console. Also: per-band n is small, so per-band accuracy swings are noisy.
 - **Env pin (pitfall):** `pyproject.toml` pins `pyarrow==21.0.0` + `pandas==2.3.3`. Re-run `pip install -e ".[dev]"` on stale venvs.
 - **Untracked, still Amber's call:** `.claude/` and `.agents/` remain untracked — decide whether to gitignore or commit.
