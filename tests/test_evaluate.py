@@ -19,13 +19,14 @@ from clean_recipe.schema import SubScores, Swap, Verdict  # noqa: E402
 
 # ---- helpers ----------------------------------------------------------------
 
-def result(recipe_id, tband, pband, tscore, pscore) -> evaluate.ResultRow:
+def result(recipe_id, tband, pband, tscore, pscore, sub_scores=None) -> evaluate.ResultRow:
     return evaluate.ResultRow(
         recipe_id=recipe_id,
         target_band=tband,
         predicted_band=pband,
         target_score=tscore,
         predicted_score=pscore,
+        sub_scores=sub_scores or {},
     )
 
 
@@ -69,6 +70,82 @@ def test_score_mae_known_errors():
 def test_metrics_empty_are_zero():
     assert evaluate.band_accuracy([]) == 0.0
     assert evaluate.score_mae([]) == 0.0
+    assert evaluate.mean_signed_error([]) == 0.0
+
+
+# ---- diagnostics (Phase 6 lever-finder) -------------------------------------
+
+def test_signed_error_sign_convention():
+    # Predicted cleaner (higher) than target ⇒ positive signed error.
+    assert result("r", "Processed", "Clean", 50, 85).signed_error == 35
+    assert result("r", "Clean", "Processed", 85, 50).signed_error == -35
+
+
+def test_mean_signed_error_detects_clean_skew():
+    results = [
+        result("r1", "Processed", "Clean", 50, 85),   # +35
+        result("r2", "Mostly Clean", "Clean", 70, 90),  # +20
+    ]
+    assert evaluate.mean_signed_error(results) == pytest.approx((35 + 20) / 2)
+
+
+def test_per_band_accuracy_groups_by_target():
+    results = [
+        result("r1", "Clean", "Clean", 90, 90),          # correct
+        result("r2", "Processed", "Clean", 50, 85),      # miss
+        result("r3", "Processed", "Processed", 50, 50),  # correct
+    ]
+    per = evaluate.per_band_accuracy(results)
+    assert per["Clean"] == (1, 1)
+    assert per["Processed"] == (1, 2)
+
+
+def test_confusion_counts_and_direction():
+    results = [
+        result("r1", "Processed", "Clean", 50, 85),
+        result("r2", "Processed", "Clean", 50, 85),
+        result("r3", "Clean", "Processed", 85, 50),
+    ]
+    conf = evaluate.confusion_counts(results)
+    assert conf[("Processed", "Clean")] == 2
+    assert conf[("Clean", "Processed")] == 1
+    assert evaluate._band_direction("Processed", "Clean") == "cleaner"
+    assert evaluate._band_direction("Clean", "Processed") == "harsher"
+
+
+def test_subscore_means_averages_reported_dims():
+    hi = {k: 90.0 for k in evaluate.SUBSCORE_KEYS}
+    lo = {k: 30.0 for k in evaluate.SUBSCORE_KEYS}
+    results = [
+        result("r1", "Clean", "Clean", 90, 90, sub_scores=hi),
+        result("r2", "Clean", "Clean", 90, 90, sub_scores=lo),
+    ]
+    means = evaluate.subscore_means(results)
+    assert means["ultra_processing"] == pytest.approx(60.0)
+    # Rows without sub_scores contribute nothing (no crash, no key).
+    bare = [result("r3", "Clean", "Clean", 90, 90)]
+    assert evaluate.subscore_means(bare) == {}
+
+
+def test_print_diagnostics_smoke(capsys):
+    results = [
+        result("r1", "Processed", "Clean", 50, 85,
+               sub_scores={k: 88.0 for k in evaluate.SUBSCORE_KEYS}),
+        result("r2", "Clean", "Clean", 90, 90,
+               sub_scores={k: 92.0 for k in evaluate.SUBSCORE_KEYS}),
+    ]
+    evaluate.print_diagnostics(results)
+    out = capsys.readouterr().out
+    assert "Per-band accuracy:" in out
+    assert "Mean signed score error" in out
+    assert "Band confusion" in out
+    assert "Model sub-score means" in out
+    assert "cleaner" in out  # r1 predicted cleaner than its Processed label
+
+
+def test_print_diagnostics_empty_is_safe(capsys):
+    evaluate.print_diagnostics([])
+    assert "nothing to diagnose" in capsys.readouterr().out
 
 
 # ---- ingredient parsing -----------------------------------------------------
@@ -155,6 +232,10 @@ def test_run_eval_and_write_results(monkeypatch, tmp_path):
         written = list(csv.DictReader(f))
     assert [r["recipe_id"] for r in written] == ["g1", "g2"]
     assert written[1]["abs_error"] == "80"
+    # Phase 6: results carry direction + the model's raw sub-scores.
+    assert written[1]["signed_error"] == "80"   # predicted 90 - target 10
+    for key in evaluate.SUBSCORE_KEYS:
+        assert written[0][key] == "90.0"        # canned_verdict sub-scores
 
 
 def test_run_eval_skips_failing_row_without_aborting(monkeypatch, capsys):
@@ -180,6 +261,26 @@ def test_run_eval_skips_failing_row_without_aborting(monkeypatch, capsys):
     # The bad row is skipped, not fatal — the other two still score.
     assert [r.recipe_id for r in results] == ["g1", "g3"]
     assert "skipping 'bad'" in capsys.readouterr().err
+
+
+def test_run_eval_progress_heartbeat(monkeypatch, capsys):
+    golden = [
+        evaluate.GoldenRow(recipe_id="g1", title="Bowl",
+                           raw_ingredients="kale", target_band="Clean", target_score=90),
+        evaluate.GoldenRow(recipe_id="g2", title="Soup",
+                           raw_ingredients="water", target_band="Clean", target_score=90),
+    ]
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    # Default: no heartbeat (keeps test/library output quiet).
+    evaluate.run_eval(golden, model="fake")
+    assert "scoring" not in capsys.readouterr().err
+
+    # progress=True: one stderr line per row, numbered.
+    evaluate.run_eval(golden, model="fake", progress=True)
+    err = capsys.readouterr().err
+    assert "[1/2] scoring 'g1'" in err
+    assert "[2/2] scoring 'g2'" in err
 
 
 def test_main_smoke(monkeypatch, tmp_path, capsys):
