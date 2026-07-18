@@ -20,6 +20,7 @@
 | 1 | Plan Phase 6 + security audit; approval | ✅ | Approved 2026-07-16. Human/Claude split: Amber owns weights/cutoffs/marker-list *contents*/targets; Claude owns harness/diagnostics/bake-off/docs. |
 | 2 | **Diagnostic harness upgrade** | ✅ | `evaluate.py`: captures the 6 model sub-scores/row; prints per-band accuracy + band-confusion (cleaner/harsher) + mean signed error + **`subscore_means`** (the lever-finder) + per-row progress heartbeat. Results CSV gains `signed_error` + 6 sub-score cols. 210 tests. Gates: code-review (1 low → fixed: `BANDS`↔`schema.Band` sync assert), security-review clean. **Committed on `phase-6/evals`.** |
 | 3 | **Populate rubric lexicons** (I draft, Amber curates) | ✅ | **DONE 2026-07-18.** Split marker lists into console-owned `rubric/lexicons.yaml` (new `src/clean_recipe/lexicons.py`); **3 flat + 3 tiered (1–5) lexicons** (added-sugar/fat/sodium graded by quality, per Amber). `prompt.py` renders a GROUNDING + CALIBRATION block (worst-tier scoring, ingredient **decomposition**, anti-leniency nudge). New Console **Lexicons** tab (per-tier editors) for Amber's curation. **Key finding:** passive lists did nothing (32.7%); the calibration rule + tiers moved it to **~40–44% band acc / MAE ~11** (from ~32% / ~14). 227 tests. Contract 2→v0.3, Contract 3 logged. **Surfaced the composite-dilution finding → next build (see OPEN FINDING + PROPOSAL below).** |
+| 3.5 | **Penalty-sensitive composite** (NEXT — fresh instance) | ⬜ | **← NEXT. Starts in a FRESH Claude instance; run the full loop. Read "Task 3.5 kickoff" block below first.** Change `score.compose_score` so a single severe offender visibly drops the score (weighted mean dilutes it today). Amber picks the option + sets the knob (human-owned) in the plan. Recommended: **Option 1 — worst-dimension pull**, α≈0.4. Measure before/after; targets the Processed band. See OPEN FINDING + PROPOSAL. |
 | 4 | Bargain-model bake-off | ⬜ | Run the tuned rubric across GLM/Gemini/Groq/DeepSeek/Qwen (`--model`). **Needs Amber's API keys** for the non-GLM providers. Recommend eval-selected default (never by brand). |
 | 5 | Regression tracking + docs | ⬜ | Persist each run's headline numbers + rubric version; keep `llm_contracts.md`/architecture/product in sync. Sets up Phase 7's "no regression" gate. |
 | 6 | Merge gates + merge to main | ⬜ | |
@@ -43,6 +44,31 @@ After Task 3 (tiered lexicons + calibration rule + decomposition), the model's s
 - **Option 4 — hard severity cap:** a tier-1/NOVA-4 marker caps the band — but needs code to match ingredients to lexicons (new layer); the model's low sub-score already encodes this, so prefer Option 1.
 
 This **subsumes** the band-compression fix (Option 1 is the mechanism; band cutoffs/weights are the secondary knob). **Do not chase it with more prompt strictness.** Mirrored in architecture 2026-07-18 + product roadmap Phase 6 row. Needs Amber to pick an option + set α before build (weights/knobs are human-owned). **Must close before Phase 6 exits.**
+
+### Task 3.5 kickoff (for the FRESH instance) — read this first
+You are picking up Phase 6 in a new Claude instance. **Run the full loop** (plan → Amber approval → implement + tests → pause for manual test → fix → commit → retro). Per the 2026-07-14 cross-instance pitfall, **verify the on-disk state before acting** (git log, run the suite, run the eval) rather than trusting this note.
+
+**The task:** make the composite score **penalty-sensitive** so a single severe offender visibly drops the band — Amber's requirement, her example being *chicken + broccoli + artificial flavor* should NOT read as Clean/Mostly Clean. Today `score.compose_score` (`src/clean_recipe/score.py`) is a pure weighted mean, which mathematically averages one bad axis away. See "OPEN FINDING + PROPOSAL" directly above for the four options + rationale.
+
+**FIRST DECISION (open — resolve with Amber in your plan; weights/knobs are HUMAN-owned):** which composition option, and the knob value. **Claude's recommendation: Option 1 (worst-dimension pull), α≈0.4** — `composite = round((1-α)·weighted_mean + α·min(sub_scores))`. Do not build until Amber confirms the option + α.
+
+**What's settled:**
+- The lexicons/prompt work (Task 3) is done + committed (`9cc5fe2`); don't redo it. The residual miss is composition, not sub-score leniency.
+- Composite stays **code-computed from human-owned knobs** (architecture 2026-07-09/11). The new knob (α, or Option-2/3 params) lives in `rubric.yaml`, not hardcoded — mirror how `weights`/`bands` are loaded and passed through `load_rubric()`.
+- No new layer: use the model's existing six sub-scores; do NOT add code that re-matches ingredients against the lexicons (that's Option 4, rejected for now).
+
+**Blast radius (walk it in one unit of work — 2026-07-12 pitfall):**
+- `src/clean_recipe/score.py` — `compose_score()` gains the penalty term; it takes the new knob from the rubric. Check the clamp/round + the 0–100 bound still hold.
+- `rubric/rubric.yaml` — add the human-owned knob (e.g. `composition: {alpha: 0.4}`) with a PLACEHOLDER-style comment; `derive_band`/`bands` unchanged unless Amber also retunes cutoffs.
+- `ai_docs/llm_contracts.md` — Contract 2 (new rubric key) + a change-log entry with the **before/after eval delta**. This is a scoring-semantics change; log it.
+- `tests/test_score.py` — cover the new formula: severe-offender case drops the band; all-high stays high; the α=0 case reduces to the old weighted mean (regression guard).
+- Docs: `rubric/rubric.md` (document the knob), architecture 2026-07-18 entry (mark the decision resolved).
+
+**Measurement discipline:** current baseline to beat is **~40.4% band accuracy / MAE 10.9 / Processed 1/12** (2026-07-18, GLM-4.5-Flash, curated lexicons). Re-run `.venv/bin/python evals/evaluate.py` before/after; the win condition is the **Processed band landing in-band** without wrecking Clean/Mostly Clean. Mind the ~2pp / ~1 MAE noise floor. If Option 1 alone under-shoots, Amber's band cutoffs/weights are the secondary knob (also hers).
+
+**Final step (so "done" is unambiguous):** eval delta logged in `llm_contracts.md`, full suite green, committed on `phase-6/evals`, retro done (pitfalls + refresh this block). Do NOT merge to main — Phase 6 continues (Task 4 bake-off, Task 5 regression tracking, Task 6 merge).
+
+**Environment:** import name `clean_recipe`; run Python via `.venv/bin/python`; model calls need `.env` (z.ai GLM key + `LLM_EXTRA_BODY={"thinking":{"type":"disabled"}}`); the eval's per-row heartbeat means it's working, not hung (~2–4s/row × 52). If a `streamlit` server is running, restart it after editing imported modules (2026-07-18 pitfall).
 
 ### Task 3 kickoff (for the fresh instance) — read this first
 Amber is starting Task 3 in a **new Claude instance**; run the full loop there (plan → approval → build → manual test → retro). What's already settled vs. open:
@@ -79,7 +105,7 @@ Amber is starting Task 3 in a **new Claude instance**; run the full loop there (
 
 ### Handoff notes for next session
 - **Phase 6 Task 3 (rubric lexicons) is DONE — committed on `phase-6/evals`, retro complete.** Tiered lexicons (`rubric/lexicons.yaml` + `src/clean_recipe/lexicons.py`) + prompt calibration/decomposition + Console Lexicons tab. Numbers: ~40–44% band acc / MAE ~11 (from ~32% / ~14). Branch NOT merged (Phase 6 incomplete).
-- **THE NEXT BUILD is the composite-composition change** — see "OPEN FINDING + PROPOSAL" above. `compose_score` weighted-mean dilutes single severe offenders; Amber wants one bad ingredient to visibly tank the score. Recommended Option 1 (worst-dimension pull, knob α in `rubric.yaml`). **Needs Amber to pick an option + set α (human-owned) before build.** Do the full plan→approval loop. This subsumes the band-cutoff-compression fix and is the likely key to landing the Processed band. Also pending: **Amber may retune band cutoffs/weights** in the same pass.
+- **THE NEXT BUILD (Task 3.5) is the composite-composition change — start here.** Read the **"Task 3.5 kickoff (for the FRESH instance)"** block above: it's the self-contained brief (task, first decision, settled points, blast radius, measurement, final step, env). TL;DR: `compose_score` weighted-mean dilutes single severe offenders; Amber wants one bad ingredient to visibly tank the score. Recommended Option 1 (worst-dimension pull, knob α≈0.4 in `rubric.yaml`). **First thing in your plan: get Amber's option + α (human-owned).** Subsumes the band-compression fix; likely the key to landing the Processed band.
 - **Phase 6 Task 2 (diagnostics) DONE** — committed `f35fe05`. `evaluate.py` prints the lever-finder; `.venv/bin/python evals/evaluate.py`.
 - **Task 3 is the live work and starts in a fresh Claude instance** (Amber's call, 2026-07-16) — do the full loop there. **Read the "Task 3 kickoff" block above first**: approach + draft-size are settled, the schema shape is proposed-not-approved (confirm in the plan). Draft the per-dimension marker lexicons broad for Amber to curate, wire into `rubric.yaml` + `prompt.py`, log the Contract-3 prompt change, re-run to measure the delta.
 - **Golden-set coverage caveat:** extremes are thin — only **3 Ultra-processed** and **8 Clean** rows (29 Mostly Clean). If tuning signal is weak at the ends, Amber may queue a few more clearly-clean / clearly-ultra-processed recipes via the console. Also: per-band n is small, so per-band accuracy swings are noisy.
