@@ -25,9 +25,19 @@ def test_rubric_loads_as_mapping():
 
 
 def test_required_top_level_keys_present():
+    # As of v0.2 the marker lexicons live in lexicons.yaml (merged in by
+    # prompt.load_rubric); rubric.yaml itself holds weights, bands, and aliases.
     r = load_rubric()
-    for key in ("weights", "bands", "nova4_markers", "refined_seed_oils", "aliases"):
+    for key in ("weights", "bands", "aliases"):
         assert key in r, f"missing rubric key: {key}"
+
+
+def test_marker_lexicons_moved_out_of_rubric_yaml():
+    # The lists were split into lexicons.yaml; rubric.yaml must not re-declare
+    # them (a stale empty list here would shadow the curated file after merge).
+    r = load_rubric()
+    for key in ("nova4_markers", "refined_seed_oils", "added_sugar_markers"):
+        assert key not in r, f"{key} should live in lexicons.yaml, not rubric.yaml"
 
 
 def test_weight_keys_match_subscores():

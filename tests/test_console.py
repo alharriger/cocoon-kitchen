@@ -57,14 +57,17 @@ def env(tmp_path, monkeypatch):
         csv.writer(f).writerow(golden.GOLDEN_COLUMNS)
     backlog = tmp_path / "backlog.jsonl"
     drafts = tmp_path / "golden_drafts.jsonl"
+    lexicons_path = tmp_path / "lexicons.yaml"
     monkeypatch.setenv("COCOON_LOG_DIR", str(log_dir))
     monkeypatch.setenv("COCOON_GOLDEN_CSV", str(golden_csv))
     monkeypatch.setenv("COCOON_RESULTS_DIR", str(results_dir))
     monkeypatch.setenv("COCOON_BACKLOG", str(backlog))
     monkeypatch.setenv("COCOON_DRAFTS", str(drafts))
+    monkeypatch.setenv("COCOON_LEXICONS", str(lexicons_path))
     return SimpleNamespace(
         log_file=log_dir / "verdicts.jsonl", golden_csv=golden_csv,
         results_dir=results_dir, backlog=backlog, drafts=drafts,
+        lexicons=lexicons_path,
     )
 
 
@@ -294,3 +297,53 @@ def test_results_tab_summary(env):
     at = run_console()
     assert any("band accuracy 50.0%" in c.value for c in at.caption)
     assert any("MAE 20.00" in c.value for c in at.caption)
+
+
+# ---- lexicons (curate the rubric marker lists) -------------------------------
+
+def test_lexicons_tab_shows_current_and_saves_curation(env):
+    from clean_recipe import lexicons
+    lexicons.write_lexicons(
+        {"nova4_markers": ["hot dog", "corn syrup"],
+         "whole_food_whitelist": ["spinach"]},
+        env.lexicons,
+    )
+    at = run_console()
+    ta = next(t for t in at.text_area if t.key == "lex_nova4_markers")
+    assert "hot dog" in ta.value and "corn syrup" in ta.value
+
+    ta.set_value("hot dog")  # Amber cuts corn syrup
+    click_by_label(at, "Save all lexicons").run()
+
+    saved = lexicons.load_lexicons(env.lexicons)
+    assert saved["nova4_markers"] == ["hot dog"]
+    assert saved["whole_food_whitelist"] == ["spinach"]  # untouched list preserved
+
+
+def test_lexicons_tab_renders_flat_and_tiered_widgets(env):
+    from clean_recipe import lexicons
+    at = run_console()
+    keys = {t.key for t in at.text_area}
+    for spec in lexicons.LEXICONS:
+        if spec.tiered:
+            for tier in spec.tiers:
+                assert f"lex_{spec.key}_{tier.level}" in keys
+        else:
+            assert f"lex_{spec.key}" in keys
+
+
+def test_lexicons_tab_saves_tiered_curation(env):
+    from clean_recipe import lexicons
+    lexicons.write_lexicons(
+        {"added_sugar_markers": {5: ["monk fruit"], 1: ["hfcs", "aspartame"]}},
+        env.lexicons,
+    )
+    at = run_console()
+    t1 = next(t for t in at.text_area if t.key == "lex_added_sugar_markers_1")
+    assert "hfcs" in t1.value and "aspartame" in t1.value
+    t1.set_value("hfcs")  # Amber cuts aspartame from the worst tier
+    click_by_label(at, "Save all lexicons").run()
+
+    saved = lexicons.load_lexicons(env.lexicons)["added_sugar_markers"]
+    assert saved[1] == ["hfcs"]
+    assert saved[5] == ["monk fruit"]  # untouched tier preserved

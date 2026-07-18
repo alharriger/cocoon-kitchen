@@ -3,7 +3,13 @@
 # Weights below are the starting hypotheses documented in
 # ai_docs/llm_contracts.md (Contract 1/2) so the pipeline can run end-to-end.
 # The human finalizes weights, band cutoffs, and all marker/alias lists.
-# Rubric schema version: v0.1 (pre-label).
+# Rubric schema version: v0.2 (marker lexicons split into rubric/lexicons.yaml).
+#
+# This file is HAND-EDITED and holds weights, band cutoffs, and aliases. The six
+# curated marker lexicons (nova4_markers, added_sugar_markers, refined_seed_oils,
+# sodium_preservative_markers, additive_markers, whole_food_whitelist) live in
+# rubric/lexicons.yaml — the console rewrites that file, never this one.
+# prompt.load_rubric() merges the two so the pipeline sees one mapping.
 
 # Sub-score weights — MUST sum to 1.0. Keys mirror SubScores in schema.py.
 weights:
@@ -22,14 +28,10 @@ bands:
   Processed: [40, 59]
   Ultra-processed: [0, 39]
 
-# NOVA group-4 ultra-processing markers (ingredient tokens).
-# PLACEHOLDER — human to populate.
-nova4_markers: []
-
-# Refined / industrial seed oils.
-# PLACEHOLDER — human to populate.
-refined_seed_oils: []
+# Marker lexicons (nova4_markers, added_sugar_markers, refined_seed_oils,
+# sodium_preservative_markers, additive_markers, whole_food_whitelist) live in
+# rubric/lexicons.yaml — curated by Amber via the console, merged in at load time.
 
 # Ingredient alias → canonical name map.
-# PLACEHOLDER — human to populate.
+# PLACEHOLDER — human to populate (deferred; not yet wired into the console).
 aliases: {}

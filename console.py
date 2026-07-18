@@ -46,6 +46,7 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from clean_recipe import golden
+from clean_recipe import lexicons
 from clean_recipe import log as vlog
 from clean_recipe.parse import ParseError, parse_pasted_ingredients, parse_recipe
 from clean_recipe.schema import Band, Verdict
@@ -62,6 +63,7 @@ GOLDEN_CSV = Path(os.environ.get("COCOON_GOLDEN_CSV", _evals / "golden_set.csv")
 RESULTS_DIR = Path(os.environ.get("COCOON_RESULTS_DIR", _evals / "results"))
 BACKLOG = Path(os.environ.get("COCOON_BACKLOG", _evals / "backlog.jsonl"))
 DRAFTS = Path(os.environ.get("COCOON_DRAFTS", _evals / "golden_drafts.jsonl"))
+LEXICONS_PATH = Path(os.environ.get("COCOON_LEXICONS", lexicons.LEXICON_PATH))
 
 PAGE_SIZE = 20
 BAND_OPTIONS = list(get_args(Band))
@@ -606,6 +608,94 @@ def _results_tab() -> None:
     st.dataframe(rows, hide_index=True)
 
 
+# ---- tab: lexicons (curate the rubric marker lists) --------------------------
+
+def _lexicons_tab() -> None:
+    """Curate the six rubric lexicons that ground the model's sub-scores.
+
+    Amber's Phase-6 tuning lever. Each list is shown one-marker-per-line and
+    editable; Save rewrites rubric/lexicons.yaml (the only write path). Contents
+    are HUMAN-owned — Claude seeds broad candidate lists, this is where Amber cuts
+    them down. All values are code-adjacent config rendered through st.text_area
+    (no markdown/html), consistent with the rest of the console.
+    """
+    def _count(val) -> int:
+        return sum(len(v) for v in val.values()) if isinstance(val, dict) else len(val)
+
+    def _lines(entries) -> str:
+        return "\n".join(entries)
+
+    def _read(key: str) -> list[str]:
+        return [ln.strip()
+                for ln in (st.session_state.get(key) or "").splitlines() if ln.strip()]
+
+    current = lexicons.load_lexicons(LEXICONS_PATH)
+    total = sum(_count(v) for v in current.values())
+    st.caption(
+        "Curate the marker lists that ground the scorer's six sub-scores. These "
+        "were drafted broad on purpose — cut what doesn't belong, add what's "
+        "missing, re-tier where you disagree, then Save. One entry per line. Your "
+        "Save is the approval: the lists are yours, the model only reads them."
+    )
+    st.caption(f"{total} markers across {len(lexicons.LEXICONS)} lists "
+               "(three are graded into 1–5 quality tiers).")
+
+    with st.form("lexicons_form"):
+        for spec in lexicons.LEXICONS:
+            val = current.get(spec.key)
+            if spec.tiered:
+                st.markdown(
+                    f"**{spec.label}**  ·  `{spec.dimension}` · "
+                    f"1–5 tiers · {_count(val)}"
+                )
+                st.caption(spec.help)
+                for tier in spec.tiers:
+                    entries = (val or {}).get(tier.level, [])
+                    st.text_area(
+                        f"Tier {tier.level} — {tier.label}  (target {tier.target})",
+                        value=_lines(entries),
+                        key=f"lex_{spec.key}_{tier.level}",
+                        height=90,
+                    )
+            else:
+                arrow = "↓ lowers" if spec.effect == "down" else "↑ raises"
+                st.markdown(
+                    f"**{spec.label}**  ·  `{arrow} {spec.dimension}` · {_count(val)}"
+                )
+                st.caption(spec.help)
+                st.text_area(
+                    spec.label,
+                    value=_lines(val or []),
+                    key=f"lex_{spec.key}",
+                    height=160,
+                    label_visibility="collapsed",
+                )
+        submitted = st.form_submit_button("Save all lexicons", type="primary")
+
+    if submitted:
+        new_lists: dict[str, object] = {}
+        for spec in lexicons.LEXICONS:
+            if spec.tiered:
+                new_lists[spec.key] = {
+                    tier.level: _read(f"lex_{spec.key}_{tier.level}")
+                    for tier in spec.tiers
+                }
+            else:
+                new_lists[spec.key] = _read(f"lex_{spec.key}")
+        try:
+            saved = lexicons.write_lexicons(new_lists, LEXICONS_PATH)
+        except OSError as e:
+            st.error(f"Couldn't save lexicons: {e}")
+            return
+        st.success(
+            "Saved. " + " · ".join(
+                f"{spec.label.split(' (')[0]}: {_count(saved[spec.key])}"
+                for spec in lexicons.LEXICONS
+            )
+        )
+        st.rerun()
+
+
 # ---- entrypoint --------------------------------------------------------------
 
 def main() -> None:
@@ -616,8 +706,8 @@ def main() -> None:
         "Labels are yours; the model only suggests."
     )
 
-    backlog, review, promote, logs, results = st.tabs(
-        ["Backlog", "Review & grade", "Promote", "Logs", "Results"]
+    backlog, review, promote, lex, logs, results = st.tabs(
+        ["Backlog", "Review & grade", "Promote", "Lexicons", "Logs", "Results"]
     )
     with backlog:
         _backlog_tab()
@@ -625,6 +715,8 @@ def main() -> None:
         _review_tab()
     with promote:
         _promote_tab()
+    with lex:
+        _lexicons_tab()
     with logs:
         _logs_tab()
     with results:

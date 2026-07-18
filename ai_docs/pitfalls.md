@@ -61,6 +61,18 @@ Every mistake gets logged here during the retrospective (or immediately, if it b
 **Prevention rule:** When a heavy framework (streamlit) pulls native-code deps (pyarrow, pandas, numpy), pin the load-bearing ones explicitly in pyproject once they're actually exercised (st.dataframe ⇒ pyarrow). On any interpreter-level crash (`Fatal Python error`), read the "Current thread" stack to find the native library, and test the fix by rerunning the FULL suite several times — single-test passes prove nothing about thread/state-dependent native crashes.
 **Status:** Active
 
+### 2026-07-18 — A running `streamlit run` server serves STALE imported modules after an edit
+**What happened:** After the console's Lexicons tab was extended (new tiered `LexiconSpec` with a `tiered` attribute), Amber's already-open `streamlit run console.py` crashed with `AttributeError: 'LexiconSpec' object has no attribute 'tiered'` — even though a fresh process and all 227 tests passed. The server had been started *before* the edit and kept the old `clean_recipe.lexicons` module (old class, no `tiered`) cached in `sys.modules`.
+**Root cause:** Streamlit's auto-reload reruns the *entry script* on change and reloads directly-watched files, but it does not reliably deep-reload transitively-imported dependency modules — module-level objects built at import time (here `LEXICONS`, a list of old-class instances) stay stale. A schema/class change in an imported module therefore surfaces as a confusing AttributeError against code that is actually correct.
+**Prevention rule:** After editing an imported module (`src/clean_recipe/*`, shared shapes) that a running `streamlit run` process uses, **fully restart the server** (Ctrl-C + re-run) — a browser refresh or save-triggered rerun is not enough. When a live Streamlit error contradicts a green fresh-process test run, suspect a stale server first, not a code bug. (Applies to `app.py` and `console.py` alike.)
+**Status:** Active
+
+### 2026-07-18 — Grounding a cheap model needs a calibration RULE, not just reference lists
+**What happened:** Phase 6 Task 3's kickoff assumption was "populate the empty marker lists and the model's leniency drops." Building that (broad lists injected as reference text) moved band accuracy **not at all** (32.7% vs ~32% baseline; MAE actually worse). The number only moved once the prompt added an explicit **calibration rule** (scan-for-markers-first, "score by the worst tier present", ingredient decomposition, "be willing to score in the 20s–40s") — then 36.5% → 44.2% with tiers.
+**Root cause:** A cheap/free model (GLM-4.5-Flash, thinking disabled) treats passive reference vocabulary as ignorable context and keeps defaulting to high, agreeable sub-scores. Listing the markers tells it *what* the markers are but not *what to do* when it sees one. Grounding data ≠ grounding behavior.
+**Prevention rule:** When grounding a model's judgment in a lexicon/rubric, ship the **decision rule alongside the data** — explicit "when you match X, do Y (to this range)" instructions, an anti-default nudge, and measure the lists-only vs. lists+rule delta separately so you can tell which did the work. Don't assume reference material changes behavior; prove it with the eval before declaring the lever built.
+**Status:** Active
+
 ### 2026-07-10 — Bare `python` is not on PATH
 **What happened:** `python` and `python -m pytest` fail (`command not found`); system `python3` is EOL 3.9.6 without pytest.
 **Root cause:** This machine has no `python` shim; the working interpreter is the project venv.
