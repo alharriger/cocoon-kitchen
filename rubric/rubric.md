@@ -28,6 +28,30 @@ Each sub-score is 0–100. The composite is a weighted sum; weights **must sum t
 | Processed | 40–59 |
 | Ultra-processed | 0–39 |
 
+## Composition — how sub-scores combine (human-owned)
+
+The composite is **not** a pure weighted mean. A weighted mean is a convex
+combination bounded between the min and max sub-score, so a single severe
+offender on a low-weight axis (e.g. an artificial flavor, which only touches
+`additive_count` at weight 0.05) gets averaged away and can't drop the band. To
+honor "one bad ingredient should visibly tank the score," the composite blends
+the weighted mean with the single **worst** sub-score:
+
+```
+composite = round( (1 - alpha) * weighted_mean + alpha * min(sub_scores) )
+```
+
+| Knob | Value | Meaning |
+|---|---|---|
+| `composition.alpha` | **0.4** | weight on the worst axis. `0` = pure weighted mean (old behavior); `1` = score is the single worst axis. |
+
+`alpha` is deliberately **weight-independent** (it acts on `min()`, not through
+the weights) because the worst offender is often the lowest-weight dimension.
+Chosen `alpha=0.4` (Amber, 2026-07-18): the smallest value that pulls a single
+severe offender out of the Clean band while leaving genuinely-clean and
+uniformly-mid recipes essentially unchanged (a spike detector — it only moves a
+band when `mean − min` is large). `alpha` is clamped to [0, 1] in code.
+
 ## Marker lexicons (human-owned, curated in the console)
 
 As of v0.3 the marker lists live in a separate **`rubric/lexicons.yaml`** (this
