@@ -19,13 +19,14 @@ from clean_recipe.schema import SubScores, Swap, Verdict  # noqa: E402
 
 # ---- helpers ----------------------------------------------------------------
 
-def result(recipe_id, tband, pband, tscore, pscore) -> evaluate.ResultRow:
+def result(recipe_id, tband, pband, tscore, pscore, sub_scores=None) -> evaluate.ResultRow:
     return evaluate.ResultRow(
         recipe_id=recipe_id,
         target_band=tband,
         predicted_band=pband,
         target_score=tscore,
         predicted_score=pscore,
+        sub_scores=sub_scores or {},
     )
 
 
@@ -69,6 +70,82 @@ def test_score_mae_known_errors():
 def test_metrics_empty_are_zero():
     assert evaluate.band_accuracy([]) == 0.0
     assert evaluate.score_mae([]) == 0.0
+    assert evaluate.mean_signed_error([]) == 0.0
+
+
+# ---- diagnostics (Phase 6 lever-finder) -------------------------------------
+
+def test_signed_error_sign_convention():
+    # Predicted cleaner (higher) than target ⇒ positive signed error.
+    assert result("r", "Processed", "Clean", 50, 85).signed_error == 35
+    assert result("r", "Clean", "Processed", 85, 50).signed_error == -35
+
+
+def test_mean_signed_error_detects_clean_skew():
+    results = [
+        result("r1", "Processed", "Clean", 50, 85),   # +35
+        result("r2", "Mostly Clean", "Clean", 70, 90),  # +20
+    ]
+    assert evaluate.mean_signed_error(results) == pytest.approx((35 + 20) / 2)
+
+
+def test_per_band_accuracy_groups_by_target():
+    results = [
+        result("r1", "Clean", "Clean", 90, 90),          # correct
+        result("r2", "Processed", "Clean", 50, 85),      # miss
+        result("r3", "Processed", "Processed", 50, 50),  # correct
+    ]
+    per = evaluate.per_band_accuracy(results)
+    assert per["Clean"] == (1, 1)
+    assert per["Processed"] == (1, 2)
+
+
+def test_confusion_counts_and_direction():
+    results = [
+        result("r1", "Processed", "Clean", 50, 85),
+        result("r2", "Processed", "Clean", 50, 85),
+        result("r3", "Clean", "Processed", 85, 50),
+    ]
+    conf = evaluate.confusion_counts(results)
+    assert conf[("Processed", "Clean")] == 2
+    assert conf[("Clean", "Processed")] == 1
+    assert evaluate._band_direction("Processed", "Clean") == "cleaner"
+    assert evaluate._band_direction("Clean", "Processed") == "harsher"
+
+
+def test_subscore_means_averages_reported_dims():
+    hi = {k: 90.0 for k in evaluate.SUBSCORE_KEYS}
+    lo = {k: 30.0 for k in evaluate.SUBSCORE_KEYS}
+    results = [
+        result("r1", "Clean", "Clean", 90, 90, sub_scores=hi),
+        result("r2", "Clean", "Clean", 90, 90, sub_scores=lo),
+    ]
+    means = evaluate.subscore_means(results)
+    assert means["ultra_processing"] == pytest.approx(60.0)
+    # Rows without sub_scores contribute nothing (no crash, no key).
+    bare = [result("r3", "Clean", "Clean", 90, 90)]
+    assert evaluate.subscore_means(bare) == {}
+
+
+def test_print_diagnostics_smoke(capsys):
+    results = [
+        result("r1", "Processed", "Clean", 50, 85,
+               sub_scores={k: 88.0 for k in evaluate.SUBSCORE_KEYS}),
+        result("r2", "Clean", "Clean", 90, 90,
+               sub_scores={k: 92.0 for k in evaluate.SUBSCORE_KEYS}),
+    ]
+    evaluate.print_diagnostics(results)
+    out = capsys.readouterr().out
+    assert "Per-band accuracy:" in out
+    assert "Mean signed score error" in out
+    assert "Band confusion" in out
+    assert "Model sub-score means" in out
+    assert "cleaner" in out  # r1 predicted cleaner than its Processed label
+
+
+def test_print_diagnostics_empty_is_safe(capsys):
+    evaluate.print_diagnostics([])
+    assert "nothing to diagnose" in capsys.readouterr().out
 
 
 # ---- ingredient parsing -----------------------------------------------------
@@ -155,6 +232,10 @@ def test_run_eval_and_write_results(monkeypatch, tmp_path):
         written = list(csv.DictReader(f))
     assert [r["recipe_id"] for r in written] == ["g1", "g2"]
     assert written[1]["abs_error"] == "80"
+    # Phase 6: results carry direction + the model's raw sub-scores.
+    assert written[1]["signed_error"] == "80"   # predicted 90 - target 10
+    for key in evaluate.SUBSCORE_KEYS:
+        assert written[0][key] == "90.0"        # canned_verdict sub-scores
 
 
 def test_run_eval_skips_failing_row_without_aborting(monkeypatch, capsys):
@@ -182,6 +263,26 @@ def test_run_eval_skips_failing_row_without_aborting(monkeypatch, capsys):
     assert "skipping 'bad'" in capsys.readouterr().err
 
 
+def test_run_eval_progress_heartbeat(monkeypatch, capsys):
+    golden = [
+        evaluate.GoldenRow(recipe_id="g1", title="Bowl",
+                           raw_ingredients="kale", target_band="Clean", target_score=90),
+        evaluate.GoldenRow(recipe_id="g2", title="Soup",
+                           raw_ingredients="water", target_band="Clean", target_score=90),
+    ]
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    # Default: no heartbeat (keeps test/library output quiet).
+    evaluate.run_eval(golden, model="fake")
+    assert "scoring" not in capsys.readouterr().err
+
+    # progress=True: one stderr line per row, numbered.
+    evaluate.run_eval(golden, model="fake", progress=True)
+    err = capsys.readouterr().err
+    assert "[1/2] scoring 'g1'" in err
+    assert "[2/2] scoring 'g2'" in err
+
+
 def test_main_smoke(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
     monkeypatch.setattr(evaluate, "RESULTS_DIR", tmp_path / "results")
@@ -190,3 +291,396 @@ def test_main_smoke(monkeypatch, tmp_path, capsys):
     assert "Band accuracy:" in out
     assert "fake-model" in out
     assert (tmp_path / "results").exists()
+
+
+# ---- bake-off: cross-provider run (Phase 6 Task 4) ---------------------------
+
+def _golden(n: int = 2) -> list:
+    return [
+        evaluate.GoldenRow(recipe_id=f"g{i}", title=f"Bowl {i}",
+                           raw_ingredients="kale", target_band="Clean", target_score=90)
+        for i in range(n)
+    ]
+
+
+def test_run_eval_skips_transient_api_error(monkeypatch, capsys):
+    # A mid-run provider API error (e.g. a free-tier 429) skips the row, not the
+    # whole run — same discipline as NotARecipeError/ScoringError.
+    from openai import OpenAIError
+
+    golden = _golden(3)
+    golden[1] = evaluate.GoldenRow(recipe_id="rate-limited", title="429",
+                                   raw_ingredients="x", target_band="Clean", target_score=90)
+
+    def flaky(title, ingredients, **k):
+        if title == "429":
+            raise OpenAIError("rate limit exceeded")
+        return canned_verdict(90, "Clean")
+
+    monkeypatch.setattr(evaluate, "score_recipe", flaky)
+    results = evaluate.run_eval(golden, model="fake")
+    assert [r.recipe_id for r in results] == ["g0", "g2"]
+    assert "skipping 'rate-limited'" in capsys.readouterr().err
+
+
+def test_run_eval_paces_calls(monkeypatch):
+    # With min_interval>0 and instant scoring, the loop sleeps the remainder to
+    # respect a free-tier RPM ceiling. Fake clock: monotonic starts high (so the
+    # first row never pre-sleeps, matching production), scoring is instant.
+    clock = [1000.0]
+    sleeps: list[float] = []
+    monkeypatch.setattr(evaluate.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(evaluate.time, "sleep", lambda d: (sleeps.append(d), clock.__setitem__(0, clock[0] + d)))
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    evaluate.run_eval(_golden(3), model="fake", min_interval=2.0)
+    # 3 rows, instant scoring → 2 inter-call sleeps of ~2s; first row never sleeps.
+    assert sleeps == [2.0, 2.0]
+
+
+def test_preflight_ok_and_fail(monkeypatch):
+    from clean_recipe.score import ScoringError
+
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    ok, msg = evaluate.preflight(_golden(1))
+    assert ok and msg == "ok"
+
+    def boom(*a, **k):
+        raise ScoringError("model did not return JSON")
+    monkeypatch.setattr(evaluate, "score_recipe", boom)
+    ok, msg = evaluate.preflight(_golden(1))
+    assert not ok and "ScoringError" in msg
+
+
+def test_run_bakeoff_skips_keyless_and_runs_keyed(monkeypatch, tmp_path):
+    # groq has a key → runs; deepseek has none → skipped (reported, not fatal).
+    monkeypatch.setenv("GROQ_API_KEY", "sk-groq")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    provs = [evaluate.select_provider("groq"), evaluate.select_provider("deepseek")]
+    summaries = evaluate.run_bakeoff(_golden(2), provs, tmp_path)
+    by_name = {s.name: s for s in summaries}
+    assert by_name["groq"].rows == 2
+    assert by_name["groq"].attempted == 2
+    assert by_name["groq"].complete  # full coverage
+    assert by_name["groq"].skipped_reason == ""
+    assert by_name["deepseek"].skipped_reason  # non-empty → skipped
+    assert by_name["deepseek"].rows == 0
+
+
+def test_incomplete_run_excluded_from_recommendation():
+    # A free-tier cap truncated 'capped' to 13/52 at a flattering 77% — it must
+    # NOT win over the complete 'full' run at 55%/52.
+    full = evaluate.BakeoffSummary(name="full", model="m", rows=52, attempted=52,
+                                   band_acc=0.55, mae=7.0)
+    capped = evaluate.BakeoffSummary(name="capped", model="m", rows=13, attempted=52,
+                                     band_acc=0.77, mae=6.0)
+    assert not capped.complete
+    assert full.complete
+    best = evaluate.recommend_default([full, capped])
+    assert best.name == "full"
+
+
+def test_recommend_none_when_only_incomplete_runs():
+    capped = evaluate.BakeoffSummary(name="capped", model="m", rows=5, attempted=52,
+                                     band_acc=0.80, mae=3.0)
+    assert evaluate.recommend_default([capped]) is None
+
+
+def test_run_bakeoff_skips_on_failed_preflight(monkeypatch, tmp_path):
+    from clean_recipe.score import ScoringError
+
+    monkeypatch.setenv("GROQ_API_KEY", "sk-groq")
+
+    def dead(*a, **k):
+        raise ScoringError("model did not return JSON")
+    monkeypatch.setattr(evaluate, "score_recipe", dead)
+
+    summaries = evaluate.run_bakeoff(_golden(2), [evaluate.select_provider("groq")], tmp_path)
+    assert summaries[0].skipped_reason.startswith("preflight:")
+    assert summaries[0].rows == 0
+
+
+def test_recommend_default_picks_best_band_then_mae():
+    a = evaluate.BakeoffSummary(name="a", model="m", rows=52, attempted=52, band_acc=0.50, mae=8.0)
+    b = evaluate.BakeoffSummary(name="b", model="m", rows=52, attempted=52, band_acc=0.60, mae=9.0)
+    c = evaluate.BakeoffSummary(name="c", model="m", rows=52, attempted=52, band_acc=0.60, mae=7.0)
+    skipped = evaluate.BakeoffSummary(name="d", model="m", skipped_reason="no key")
+    best = evaluate.recommend_default([a, b, c, skipped])
+    # highest band acc (b & c tie at .60), then lowest MAE (c=7.0).
+    assert best.name == "c"
+
+
+def test_recommend_default_none_when_all_skipped():
+    skipped = evaluate.BakeoffSummary(name="d", model="m", skipped_reason="no key")
+    assert evaluate.recommend_default([skipped]) is None
+
+
+def test_main_all_providers_prints_table_and_recommendation(monkeypatch, tmp_path, capsys):
+    # Only groq keyed; the rest skip. Table prints; groq is recommended.
+    for var in ("LLM_API_KEY", "GEMINI_API_KEY", "QWEN_API_KEY", "DEEPSEEK_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "sk-groq")
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    monkeypatch.setattr(evaluate, "RESULTS_DIR", tmp_path / "results")
+
+    evaluate.main(["--all-providers", "--limit", "2"])
+    out = capsys.readouterr().out
+    assert "BAKE-OFF RESULTS" in out
+    assert "Eval-selected default" in out
+    assert "groq" in out
+
+
+def test_main_openrouter_runs_incumbent_plus_models(monkeypatch, tmp_path, capsys):
+    # OpenRouter path: glm incumbent (free) + the curated model set, one key.
+    monkeypatch.setenv("LLM_API_KEY", "sk-glm")           # incumbent
+    monkeypatch.setenv("OPEN_ROUTER_API_KEY", "sk-or")    # all OR models
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    monkeypatch.setattr(evaluate, "RESULTS_DIR", tmp_path / "results")
+
+    evaluate.main(["--openrouter", "--limit", "2"])
+    out = capsys.readouterr().out
+    assert "BAKE-OFF RESULTS" in out
+    # every curated OpenRouter model appears as a row, plus the glm incumbent.
+    from providers import OPENROUTER_MODELS
+    for slug, _eb, _usd in OPENROUTER_MODELS:
+        assert slug.split("/")[-1] in out
+    assert "glm-4.5-flash" in out
+
+
+def test_openrouter_providers_share_one_key_and_base_url():
+    from providers import openrouter_providers, OPENROUTER_KEY_ENV, OPENROUTER_BASE_URL
+    provs = openrouter_providers()
+    assert len(provs) == 8
+    assert all(p.key_env == OPENROUTER_KEY_ENV for p in provs)
+    assert all(p.base_url == OPENROUTER_BASE_URL for p in provs)
+    # thinking models carry reasoning-off; non-thinking are blank.
+    by_model = {p.model: p for p in provs}
+    assert "reasoning" in by_model["qwen/qwen-plus"].extra_body
+    assert by_model["openai/gpt-4o-mini"].extra_body == ""
+
+
+def test_main_single_provider_uses_profile_model(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("GROQ_API_KEY", "sk-groq")
+    captured = {}
+
+    def fake_score(title, ingredients, *, model=None, **k):
+        captured["model"] = model
+        return canned_verdict(90, "Clean")
+    monkeypatch.setattr(evaluate, "score_recipe", fake_score)
+    monkeypatch.setattr(evaluate, "RESULTS_DIR", tmp_path / "results")
+
+    evaluate.main(["--provider", "groq", "--limit", "1"])
+    # --provider with no --model runs the profile's default model.
+    assert captured["model"] == "llama-3.3-70b-versatile"
+    import os
+    assert os.environ["LLM_BASE_URL"] == "https://api.groq.com/openai/v1"
+
+
+# ---- run log + regression baseline (Phase 6 Task 5) --------------------------
+
+import runlog  # noqa: E402  (evals/ already on sys.path above)
+
+
+@pytest.fixture(autouse=True)
+def runlog_tmp(monkeypatch, tmp_path):
+    """Point the run log + baseline at tmp so tests never touch the tracked files.
+
+    Autouse on purpose: main() now appends to TRACKED files on any full-set
+    run, so isolation must be a path boundary for every test in this module,
+    not a convention that each future test remembers to opt into.
+    """
+    monkeypatch.setattr(runlog, "RUN_LOG", tmp_path / "run_log.csv")
+    monkeypatch.setattr(runlog, "BASELINE_PATH", tmp_path / "baseline.json")
+    monkeypatch.setattr(evaluate, "RESULTS_DIR", tmp_path / "results")
+    return tmp_path
+
+
+def _golden_csv(tmp_path, bands_scores):
+    """Write a minimal valid Contract-4 golden CSV with known labels."""
+    path = tmp_path / "golden.csv"
+    lines = [",".join(evaluate.GOLDEN_COLUMNS)]
+    for i, (band, score) in enumerate(bands_scores):
+        lines.append(f"g{i},pasted,Bowl {i},kale; oats,{band},{score},,,,")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_main_full_run_appends_run_log(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--note", "wiring test"])
+    out = capsys.readouterr().out
+    assert "Run log:" in out
+
+    with (runlog_tmp / "run_log.csv").open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "single"
+    assert rows[0]["model"] == "fake-model"
+    assert rows[0]["rows"] == "2" and rows[0]["attempted"] == "2"
+    assert rows[0]["band_accuracy"] == "1.0000"
+    assert rows[0]["note"] == "wiring test"
+    # Fingerprint of the real rubric files rides along for provenance.
+    assert rows[0]["rubric_version"].startswith("v")
+    assert len(rows[0]["config_hash"]) == 10
+
+
+def test_main_limit_slice_is_not_logged(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--limit", "1"])
+    out = capsys.readouterr().out
+    assert "not comparable" in out
+    assert not (runlog_tmp / "run_log.csv").exists()
+
+
+def test_main_update_baseline_then_within_noise(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    out = capsys.readouterr().out
+    assert "Baseline updated" in out
+    assert (runlog_tmp / "baseline.json").exists()
+
+    # An identical second run compares against the saved baseline: unchanged.
+    evaluate.main(["--model", "fake-model", "--golden", str(golden)])
+    out = capsys.readouterr().out
+    assert "Baseline check:" in out
+    assert "Within the noise floor" in out
+
+
+def test_main_fail_on_regression_exits_nonzero(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    capsys.readouterr()
+
+    # Same model now scores everything Processed/40 → band 0%, MAE 50: regression.
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(40, "Processed"))
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--model", "fake-model", "--golden", str(golden), "--fail-on-regression"])
+    assert excinfo.value.code == 1
+    assert "REGRESSION" in capsys.readouterr().out
+
+
+def test_main_regression_without_flag_still_exits_zero(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    capsys.readouterr()
+
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(40, "Processed"))
+    evaluate.main(["--model", "fake-model", "--golden", str(golden)])  # no raise
+    assert "REGRESSION" in capsys.readouterr().out
+
+
+def test_update_baseline_refused_under_coverage_floor(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+
+    calls = {"n": 0}
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return canned_verdict(90, "Clean")
+        raise evaluate.ScoringError("boom")
+    monkeypatch.setattr(evaluate, "score_recipe", flaky)
+
+    # 1/2 rows scored (50% < 90% floor) → refuse to make it the number-to-beat.
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    assert excinfo.value.code == 1
+    assert "NOT updating baseline" in capsys.readouterr().out
+    assert not (runlog_tmp / "baseline.json").exists()
+    # The run itself IS still logged (the log records what happened).
+    with (runlog_tmp / "run_log.csv").open(newline="", encoding="utf-8") as f:
+        assert len(list(csv.DictReader(f))) == 1
+
+
+@pytest.mark.parametrize("argv", [
+    ["--update-baseline", "--limit", "1"],
+    ["--update-baseline", "--openrouter"],
+    ["--fail-on-regression", "--all-providers"],
+    ["--update-baseline", "--fail-on-regression"],  # would gate + move the bar at once
+])
+def test_baseline_flags_rejected_outside_full_single_runs(argv):
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(argv)
+    assert excinfo.value.code == 2  # argparse usage error
+
+
+def test_gate_fails_loud_without_baseline(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    # No baseline.json exists — the gate must not pass vacuously.
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--model", "fake-model", "--golden", str(golden), "--fail-on-regression"])
+    assert excinfo.value.code == 1
+    assert "no baseline" in capsys.readouterr().out
+
+
+def test_gate_fails_loud_on_truncated_run(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    capsys.readouterr()
+
+    # 1/2 rows score (mid-run failures) — not comparable, so the gate must
+    # fail loud rather than deliver a verdict off a non-random slice.
+    calls = {"n": 0}
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return canned_verdict(90, "Clean")
+        raise evaluate.ScoringError("boom")
+    monkeypatch.setattr(evaluate, "score_recipe", flaky)
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--model", "fake-model", "--golden", str(golden), "--fail-on-regression"])
+    assert excinfo.value.code == 1
+    assert "not comparable" in capsys.readouterr().out
+
+
+def test_gate_fails_on_model_mismatch(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    capsys.readouterr()
+
+    # A different model can't be judged against this baseline — incomparable
+    # must fail the gate (no silent green on model drift), not skip it.
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--model", "other-model", "--golden", str(golden), "--fail-on-regression"])
+    assert excinfo.value.code == 1
+    assert "incomparable" in capsys.readouterr().out
+
+
+def test_log_bakeoff_runs_logs_ran_providers_only(runlog_tmp, capsys):
+    summaries = [
+        evaluate.BakeoffSummary(
+            name="glm", model="glm-4.5-flash", rows=52, attempted=52,
+            band_acc=0.615, mae=7.10, mean_signed=2.2,
+            processed_in_band=(7, 12), results_csv="/x/eval-glm.csv",
+        ),
+        evaluate.BakeoffSummary(  # rate-capped but ran → logged (visible truncation)
+            name="groq", model="llama-3.3-70b-versatile", rows=13, attempted=52,
+            band_acc=0.77, mae=5.0, mean_signed=1.0,
+            processed_in_band=(2, 3), results_csv="/x/eval-groq.csv",
+        ),
+        evaluate.BakeoffSummary(  # never ran → not logged
+            name="deepseek", model="deepseek-chat", attempted=52,
+            skipped_reason="preflight: no balance",
+        ),
+    ]
+    evaluate.log_bakeoff_runs(summaries, "bakeoff test")
+    assert "Run log:" in capsys.readouterr().out
+    with (runlog_tmp / "run_log.csv").open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert [r["provider"] for r in rows] == ["glm", "groq"]
+    assert rows[0]["kind"] == "bakeoff"
+    assert rows[1]["rows"] == "13" and rows[1]["attempted"] == "52"
+    assert rows[0]["results_csv"] == "eval-glm.csv"  # basename only

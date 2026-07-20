@@ -1,0 +1,487 @@
+# CocoonKitchen rubric LEXICONS — curated marker lists (Contract 2).
+#
+# HUMAN-OWNED CONTENT. Claude drafts broad candidate lists; Amber curates them
+# (cut / keep / add, and for tiered lists move a marker between tiers) via the
+# Console "Lexicons" tab, whose Save button rewrites this file. These lists GROUND
+# the model's six sub-scores in the scoring prompt.
+#
+# Shapes: flat lists (nova4_markers, additive_markers = pull DOWN;
+# whole_food_whitelist = push UP) and 1–5 quality ladders keyed by tier level
+# (added_sugar_markers, fat_quality_markers, sodium_preservative_markers), where
+# 5 = cleanest and 1 = worst.
+#
+# Weights, band cutoffs, and aliases live in rubric.yaml (hand-edited, not here).
+# Lexicon schema version: v0.3.
+
+nova4_markers:
+- high-fructose corn syrup
+- corn syrup
+- glucose syrup
+- glucose-fructose syrup
+- corn syrup solids
+- maltodextrin
+- hydrogenated oil
+- partially hydrogenated oil
+- interesterified fat
+- hydrolyzed protein
+- hydrolyzed vegetable protein
+- soy protein isolate
+- whey protein isolate
+- textured vegetable protein
+- modified food starch
+- modified corn starch
+- modified starch
+- dextrin
+- non-dairy creamer
+- coffee creamer
+- artificial flavor
+- flavor enhancer
+- monosodium glutamate
+- msg
+- yeast extract
+- autolyzed yeast extract
+- margarine
+- vegetable shortening
+- shortening
+- imitation cheese
+- processed cheese
+- american cheese
+- cheese product
+- spray cheese
+- whipped topping
+- cool whip
+- marshmallow
+- marshmallow fluff
+- instant pudding mix
+- cake mix
+- brownie mix
+- pancake mix
+- biscuit mix
+- cornbread mix
+- bouillon cube
+- instant ramen
+- ramen seasoning packet
+- instant noodles
+- boxed mac and cheese
+- cream of mushroom soup
+- cream of chicken soup
+- condensed soup
+- canned soup
+- hot dog
+- frankfurter
+- deli meat
+- lunch meat
+- bologna
+- spam
+- chicken nuggets
+- fish sticks
+- frozen dinner
+- tater tots
+- refrigerated biscuit dough
+- crescent roll dough
+- cocoa mix
+- hot chocolate mix
+- powdered drink mix
+- flavored gelatin
+- jell-o
+- gelatin dessert
+- imitation bacon bits
+- protein bar
+- energy bar
+- meal replacement shake
+- instant mashed potatoes
+- frozen french fries
+- toaster pastry
+- sweetened breakfast cereal
+- granola bar
+- candy
+- soda
+added_sugar_markers:
+  5:
+  - monk fruit
+  - monk fruit extract
+  - stevia
+  - allulose
+  4:
+  - honey
+  - raw honey
+  - maple syrup
+  - pure maple syrup
+  - agave
+  - agave nectar
+  - date sugar
+  - dates
+  - blackstrap molasses
+  - molasses
+  - erythritol
+  - xylitol
+  3:
+  - coconut sugar
+  - palm sugar
+  - whole cane sugar
+  - sucanat
+  - muscovado
+  - rapadura
+  - brown rice syrup
+  - sorghum syrup
+  - barley malt
+  - malt syrup
+  - date syrup
+  - jaggery
+  - panela
+  - maple sugar
+  2:
+  - sugar
+  - white sugar
+  - granulated sugar
+  - cane sugar
+  - brown sugar
+  - light brown sugar
+  - dark brown sugar
+  - powdered sugar
+  - confectioners sugar
+  - turbinado sugar
+  - demerara sugar
+  - raw sugar
+  - beet sugar
+  - caster sugar
+  - evaporated cane juice
+  - cane juice
+  - sorbitol
+  - maltitol
+  - mannitol
+  1:
+  - high-fructose corn syrup
+  - corn syrup
+  - glucose syrup
+  - glucose-fructose syrup
+  - corn syrup solids
+  - maltodextrin
+  - invert sugar
+  - dextrose
+  - fructose
+  - glucose
+  - maltose
+  - aspartame
+  - sucralose
+  - saccharin
+  - acesulfame potassium
+  - acesulfame-k
+  - neotame
+  - advantame
+fat_quality_markers:
+  5:
+  - extra virgin olive oil
+  - olive oil
+  - avocado oil
+  - avocado
+  - olives
+  - flaxseed oil
+  - cold-pressed oil
+  - nuts
+  - seeds
+  - tahini
+  4:
+  - butter
+  - grass-fed butter
+  - ghee
+  - tallow
+  - beef tallow
+  - duck fat
+  - lard
+  - coconut oil
+  - unrefined coconut oil
+  - cacao butter
+  - cocoa butter
+  3:
+  - refined olive oil
+  - peanut oil
+  - sesame oil
+  - rice bran oil
+  - refined coconut oil
+  2:
+  - canola oil
+  - rapeseed oil
+  - soybean oil
+  - corn oil
+  - sunflower oil
+  - safflower oil
+  - cottonseed oil
+  - grapeseed oil
+  - vegetable oil
+  - vegetable oil blend
+  - blended vegetable oil
+  - salad oil
+  - palm oil
+  - palm kernel oil
+  1:
+  - hydrogenated oil
+  - partially hydrogenated oil
+  - interesterified fat
+  - interesterified oil
+  - margarine
+  - vegetable shortening
+  - shortening
+sodium_preservative_markers:
+  5:
+  - salt
+  - sea salt
+  - kosher salt
+  - himalayan salt
+  - pink salt
+  - rock salt
+  - flaky sea salt
+  - table salt
+  - iodized salt
+  - coconut aminos
+  4:
+  - tamari
+  - miso
+  - fish sauce
+  - worcestershire sauce
+  - anchovy paste
+  - seasoned salt
+  - garlic salt
+  - onion salt
+  - celery salt
+  3:
+  - soy sauce
+  - bouillon
+  - bouillon cube
+  - stock cube
+  - seasoning salt
+  - onion soup mix
+  - taco seasoning
+  2:
+  - monosodium glutamate
+  - msg
+  - disodium inosinate
+  - disodium guanylate
+  - sodium phosphate
+  - sodium tripolyphosphate
+  - sodium acid pyrophosphate
+  - sodium citrate
+  - sodium lactate
+  - sodium diacetate
+  - sodium aluminum phosphate
+  1:
+  - sodium nitrite
+  - sodium nitrate
+  - potassium nitrate
+  - sodium benzoate
+  - potassium benzoate
+  - benzoic acid
+  - sodium sorbate
+  - potassium sorbate
+  - sorbic acid
+  - sodium bisulfite
+  - sodium metabisulfite
+  - sodium sulfite
+  - sulfur dioxide
+  - sulfites
+  - calcium propionate
+  - sodium propionate
+  - propionic acid
+  - bha
+  - bht
+  - tbhq
+  - sodium erythorbate
+  - edta
+  - calcium disodium edta
+  - disodium edta
+  - nisin
+  - natamycin
+  - curing salt
+  - pink curing salt
+  - prague powder
+additive_markers:
+- red 40
+- red dye 40
+- yellow 5
+- yellow 6
+- blue 1
+- blue 2
+- green 3
+- tartrazine
+- allura red
+- sunset yellow
+- caramel color
+- titanium dioxide
+- artificial color
+- food coloring
+- fd&c
+- carrageenan
+- xanthan gum
+- guar gum
+- locust bean gum
+- gellan gum
+- cellulose gum
+- carboxymethylcellulose
+- microcrystalline cellulose
+- soy lecithin
+- lecithin
+- mono- and diglycerides
+- polysorbate 60
+- polysorbate 80
+- sorbitan monostearate
+- datem
+- sodium stearoyl lactylate
+- calcium stearoyl lactylate
+- propylene glycol
+- propylene glycol alginate
+- sodium alginate
+- calcium silicate
+- silicon dioxide
+- anti-caking agent
+- artificial flavor
+- natural flavor
+- artificial flavoring
+- dough conditioner
+- potassium bromate
+- azodicarbonamide
+- l-cysteine
+whole_food_whitelist:
+- onion
+- garlic
+- carrot
+- celery
+- tomato
+- potato
+- sweet potato
+- spinach
+- kale
+- broccoli
+- cauliflower
+- zucchini
+- cucumber
+- bell pepper
+- mushroom
+- cabbage
+- lettuce
+- green beans
+- peas
+- asparagus
+- eggplant
+- butternut squash
+- pumpkin
+- beet
+- radish
+- leek
+- shallot
+- scallion
+- green onion
+- brussels sprouts
+- arugula
+- swiss chard
+- collard greens
+- okra
+- artichoke
+- fennel
+- turnip
+- parsnip
+- ginger
+- jalapeno
+- chili pepper
+- corn on the cob
+- apple
+- banana
+- orange
+- lemon
+- lime
+- strawberry
+- blueberry
+- raspberry
+- blackberry
+- grape
+- pear
+- peach
+- plum
+- cherry
+- mango
+- pineapple
+- watermelon
+- cantaloupe
+- avocado
+- pomegranate
+- fig
+- apricot
+- kiwi
+- fresh cranberry
+- coconut
+- chicken breast
+- chicken thigh
+- whole chicken
+- ground beef
+- beef
+- steak
+- pork
+- pork chop
+- lamb
+- turkey
+- ground turkey
+- salmon
+- tuna
+- cod
+- shrimp
+- tilapia
+- trout
+- egg
+- eggs
+- black beans
+- kidney beans
+- chickpeas
+- garbanzo beans
+- lentils
+- split peas
+- pinto beans
+- navy beans
+- cannellini beans
+- white beans
+- edamame
+- dried beans
+- rolled oats
+- steel-cut oats
+- old-fashioned oats
+- brown rice
+- wild rice
+- quinoa
+- hulled barley
+- buckwheat
+- millet
+- farro
+- wheat berries
+- whole-grain cornmeal
+- popcorn kernels
+- almonds
+- walnuts
+- pecans
+- cashews
+- peanuts
+- pistachios
+- hazelnuts
+- sunflower seeds
+- pumpkin seeds
+- chia seeds
+- flax seeds
+- sesame seeds
+- hemp seeds
+- basil
+- parsley
+- cilantro
+- thyme
+- rosemary
+- oregano
+- sage
+- mint
+- dill
+- bay leaf
+- cinnamon
+- cumin
+- paprika
+- turmeric
+- black pepper
+- nutmeg
+- cloves
+- cardamom
+- coriander
+- water

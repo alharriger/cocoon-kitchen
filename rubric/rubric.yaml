@@ -3,7 +3,13 @@
 # Weights below are the starting hypotheses documented in
 # ai_docs/llm_contracts.md (Contract 1/2) so the pipeline can run end-to-end.
 # The human finalizes weights, band cutoffs, and all marker/alias lists.
-# Rubric schema version: v0.1 (pre-label).
+# Rubric schema version: v0.3 (added the composition.alpha composite-blend knob).
+#
+# This file is HAND-EDITED and holds weights, band cutoffs, and aliases. The six
+# curated marker lexicons (nova4_markers, added_sugar_markers, refined_seed_oils,
+# sodium_preservative_markers, additive_markers, whole_food_whitelist) live in
+# rubric/lexicons.yaml — the console rewrites that file, never this one.
+# prompt.load_rubric() merges the two so the pipeline sees one mapping.
 
 # Sub-score weights — MUST sum to 1.0. Keys mirror SubScores in schema.py.
 weights:
@@ -22,14 +28,26 @@ bands:
   Processed: [40, 59]
   Ultra-processed: [0, 39]
 
-# NOVA group-4 ultra-processing markers (ingredient tokens).
-# PLACEHOLDER — human to populate.
-nova4_markers: []
+# Composition — how the six sub-scores roll up into the 0–100 composite.
+# PLACEHOLDER-style, HUMAN-OWNED (do not tune without approval).
+# The composite is NOT a pure weighted mean: a mean is a convex combination
+# bounded between the min and max sub-score, so a single severe offender on a
+# low-weight axis (an artificial flavor touches only additive_count, weight 0.05)
+# gets averaged away and can't drop the band. `alpha` blends in the single WORST
+# sub-score so one bad ingredient visibly tanks the score:
+#   composite = round((1 - alpha) * weighted_mean + alpha * min(sub_scores))
+# alpha=0 → pure weighted mean (old behavior); alpha=1 → the single worst axis.
+# alpha acts on min() (weight-independent) because the worst offender is often the
+# lowest-weight dimension. Clamped to [0, 1] in code. Amber set alpha=0.4
+# (2026-07-18): smallest value that pulls a lone severe offender out of the Clean
+# band while leaving genuinely-clean / uniformly-mid recipes essentially unchanged.
+composition:
+  alpha: 0.4
 
-# Refined / industrial seed oils.
-# PLACEHOLDER — human to populate.
-refined_seed_oils: []
+# Marker lexicons (nova4_markers, added_sugar_markers, refined_seed_oils,
+# sodium_preservative_markers, additive_markers, whole_food_whitelist) live in
+# rubric/lexicons.yaml — curated by Amber via the console, merged in at load time.
 
 # Ingredient alias → canonical name map.
-# PLACEHOLDER — human to populate.
+# PLACEHOLDER — human to populate (deferred; not yet wired into the console).
 aliases: {}

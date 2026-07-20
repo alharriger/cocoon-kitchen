@@ -29,6 +29,27 @@ def test_system_message_carries_rubric_and_schema():
     assert "flagged_ingredients" in system and "swaps" in system
 
 
+def test_load_rubric_merges_lexicons():
+    r = load_rubric()
+    # the six curated lexicons are merged in from lexicons.yaml
+    for key in ("nova4_markers", "additive_markers", "whole_food_whitelist"):
+        assert key in r and isinstance(r[key], list)          # flat
+    for key in ("added_sugar_markers", "fat_quality_markers",
+                "sodium_preservative_markers"):
+        assert key in r and isinstance(r[key], dict)          # tiered
+
+
+def test_grounding_lists_render_flat_tiered_and_decomposition():
+    system = build_messages("t", ["x"], load_rubric())[0]["content"]
+    # structure/wiring only, not human-owned contents
+    assert "GROUNDING LISTS" in system
+    assert "lowers ultra_processing" in system      # flat ↓
+    assert "raises whole_food_ratio" in system      # flat ↑
+    assert "grades added_sugar" in system           # tiered header
+    assert "Tier 5" in system and "Tier 1" in system
+    assert "DECOMPOSE" in system                     # decomposition instruction
+
+
 def test_prompt_injection_defense_present():
     system = build_messages("t", ["x"], load_rubric())[0]["content"]
     assert "untrusted" in system.lower()

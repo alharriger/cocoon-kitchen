@@ -89,11 +89,30 @@ def _parse(raw: str) -> ModelOutput:
         raise ScoringError(f"model JSON failed schema validation: {e}") from e
 
 
-def compose_score(sub_scores: SubScores, weights: dict[str, float]) -> int:
-    """Weighted composite of the sub-scores, rounded and clamped to 0–100."""
+def compose_score(
+    sub_scores: SubScores, weights: dict[str, float], alpha: float = 0.0
+) -> int:
+    """Penalty-sensitive composite of the sub-scores, rounded and clamped to 0–100.
+
+    ``composite = (1-alpha)*weighted_mean + alpha*min(sub_scores)``.
+
+    A pure weighted mean is a convex combination bounded between the min and max
+    sub-score, so a single severe offender on a low-weight axis is averaged away
+    (e.g. an artificial flavor tanks only ``additive_count`` at weight 0.05). The
+    ``alpha`` term (human-owned in rubric.yaml → ``composition.alpha``) blends in
+    the single worst axis so one bad ingredient visibly drops the score. ``alpha``
+    is weight-independent by design: the worst offender is often the lowest-weight
+    dimension, so routing the penalty through the weights wouldn't bite.
+
+    ``alpha=0`` reduces exactly to the old weighted mean (regression guard). It is
+    clamped to [0, 1] here — per the fail-loud contract, a malformed knob in the
+    rubric must not be able to invert the blend rather than being silently used.
+    """
+    alpha = max(0.0, min(1.0, alpha))
     values = sub_scores.model_dump()
-    total = sum(weights[k] * values[k] for k in values)
-    return max(0, min(100, round(total)))
+    weighted_mean = sum(weights[k] * values[k] for k in values)
+    composite = (1.0 - alpha) * weighted_mean + alpha * min(values.values())
+    return max(0, min(100, round(composite)))
 
 
 def derive_band(score: int, bands: dict[str, list[int]]) -> Band:
@@ -109,7 +128,10 @@ def _build_verdict(output: ModelOutput, rubric: dict) -> Verdict:
     assert output.sub_scores is not None
     assert output.flagged_ingredients is not None
     assert output.swaps is not None
-    score = compose_score(output.sub_scores, rubric["weights"])
+    # `or {}` guards a present-but-empty `composition:` block (YAML parses it as
+    # None): an empty/absent block degrades to alpha=0.0 (old weighted mean).
+    alpha = (rubric.get("composition") or {}).get("alpha", 0.0)
+    score = compose_score(output.sub_scores, rubric["weights"], alpha)
     band = derive_band(score, rubric["bands"])
     return Verdict(
         score=score,

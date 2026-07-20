@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-07-20T14:51:46",
+  "kind": "single",
+  "provider": "",
+  "model": "glm-4.5-flash",
+  "rows": 51,
+  "attempted": 52,
+  "band_accuracy": 0.5882352941176471,
+  "score_mae": 7.117647058823529,
+  "mean_signed_error": 2.1372549019607843,
+  "processed_correct": 7,
+  "processed_total": 12,
+  "rubric_version": "v0.3",
+  "lexicon_version": "v0.3",
+  "config_hash": "57677e105c",
+  "results_csv": "eval-20260720-145146-glm-4.5-flash.csv",
+  "note": ""
+}

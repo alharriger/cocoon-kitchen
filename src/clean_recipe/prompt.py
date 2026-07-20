@@ -25,6 +25,8 @@ from pathlib import Path
 
 import yaml
 
+from .lexicons import LEXICON_PATH, LEXICONS, load_lexicons
+
 RUBRIC_PATH = Path(__file__).resolve().parents[2] / "rubric" / "rubric.yaml"
 
 # Human-readable meaning of each sub-score dimension (all 0–100, higher = cleaner).
@@ -39,10 +41,19 @@ SUBSCORE_GUIDE = {
 }
 
 
-def load_rubric(path: Path | str = RUBRIC_PATH) -> dict:
-    """Load and return the machine-readable rubric mapping."""
+def load_rubric(
+    path: Path | str = RUBRIC_PATH, lexicons_path: Path | str = LEXICON_PATH
+) -> dict:
+    """Load the rubric mapping: weights/bands/aliases + the six curated lexicons.
+
+    ``rubric.yaml`` (hand-edited) supplies weights, band cutoffs, and aliases; the
+    marker lexicons live in ``rubric/lexicons.yaml`` (console-owned) and are merged
+    in here so every caller sees one flat mapping exactly as before the split.
+    """
     with Path(path).open(encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        rubric = yaml.safe_load(f)
+    rubric.update(load_lexicons(lexicons_path))
+    return rubric
 
 
 def _rubric_reference(rubric: dict) -> str:
@@ -57,17 +68,71 @@ def _rubric_reference(rubric: dict) -> str:
     for band, span in rubric.get("bands", {}).items():
         lines.append(f"  - {band}: {span[0]}–{span[1]}")
 
-    # Marker/alias lists are human-owned and may be empty in early phases; only
-    # surface them once populated so the prompt stays lean.
-    nova = rubric.get("nova4_markers") or []
-    oils = rubric.get("refined_seed_oils") or []
-    aliases = rubric.get("aliases") or {}
-    if nova:
+    # Curated lexicons ground each sub-score. Human-owned and possibly empty in
+    # early phases; only surface a list once populated so the prompt stays lean.
+    # Flat lists tie a dimension to a direction (↓/↑); tiered lists grade a
+    # dimension 5 (cleanest) → 1 (worst), each tier with a target sub-score. This
+    # grounding is the lever that fixes the baseline's uniform leniency.
+    def _has_markers(spec) -> bool:
+        val = rubric.get(spec.key)
+        if spec.tiered:
+            return any((val or {}).get(t.level) for t in spec.tiers)
+        return bool(val)
+
+    if any(_has_markers(spec) for spec in LEXICONS):
         lines.append("")
-        lines.append("Known ultra-processing (NOVA-4) marker ingredients: " + ", ".join(nova))
-    if oils:
-        lines.append("Known refined/industrial seed oils: " + ", ".join(oils))
+        lines.append(
+            "GROUNDING LISTS + CALIBRATION RULE — use these curated ingredient "
+            "lists to score each dimension. Do NOT default a dimension to a high "
+            "score: first scan the recipe for that dimension's markers, then set "
+            "the score from what you find. Match on meaning, not exact spelling.\n"
+            "  DECOMPOSE compound/packaged ingredients into their base components "
+            "before scoring: a product like 'pancake mix' is refined flour + sugar "
+            "+ seed oil + leavening + additives, so it drags DOWN several dimensions "
+            "at once (ultra_processing, added_sugar, fat_quality, additive_count); a "
+            "single whole ingredient like 'corn on the cob' affects far fewer. Score "
+            "the base components you'd expect inside each product.\n"
+            "  Flat ↓ lists (ultra_processing, additive_count): no markers → 80–100; "
+            "one minor → 55–75; several, or one dominating the dish → 15–45. A ↓ "
+            "dimension whose markers are clearly present must NOT stay near 100.\n"
+            "  Tiered lists (added_sugar, fat_quality, sodium_preservatives): find "
+            "the WORST (lowest-tier) marker prominently present and score toward "
+            "that tier's target; if the dimension's ingredient is absent entirely, "
+            "score 90–100.\n"
+            "  whole_food_ratio (↑) is the SHARE of ingredients that are whole and "
+            "unprocessed: count how many ingredients are NOT whole (packaged, "
+            "refined, or on a ↓ list) and lower it proportionally.\n"
+            "  Be willing to score in the 20s–40s (or lower). Most everyday recipes "
+            "are not pristine; six uniformly high sub-scores on a processed dish is "
+            "a scoring failure, not a clean recipe."
+        )
+        for spec in LEXICONS:
+            if not _has_markers(spec):
+                continue
+            if spec.tiered:
+                val = rubric.get(spec.key) or {}
+                lines.append(
+                    f"  - {spec.label} — grades {spec.dimension} by the WORST "
+                    "(lowest-tier) source present (5 = cleanest → 1 = worst):"
+                )
+                for tier in spec.tiers:
+                    markers = val.get(tier.level) or []
+                    if not markers:
+                        continue
+                    lines.append(
+                        f"      Tier {tier.level} (target {tier.target}) "
+                        f"{tier.label}: " + ", ".join(markers)
+                    )
+            else:
+                markers = rubric.get(spec.key) or []
+                arrow = "↓ lowers" if spec.effect == "down" else "↑ raises"
+                lines.append(
+                    f"  - {spec.label} [{arrow} {spec.dimension}]: " + ", ".join(markers)
+                )
+
+    aliases = rubric.get("aliases") or {}
     if aliases:
+        lines.append("")
         lines.append("Ingredient aliases (treat left as right): "
                      + "; ".join(f"{k} = {v}" for k, v in aliases.items()))
     return "\n".join(lines)

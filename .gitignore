@@ -17,5 +17,14 @@ data/logs/*
 # Eval results
 evals/results/
 
+# Claude Code — per-user local tooling (NOT shared config): the local
+# permission allowlist (machine-absolute paths) and skill symlinks into the
+# gitignored .venv. A shared, committable .claude/settings.json is exempted so
+# it can be tracked if the project ever needs shared permissions.
+.claude/*
+!.claude/settings.json
+# .agents/ is a symlink tree into the gitignored .venv (regenerated locally).
+.agents/
+
 # OS
 .DS_Store
