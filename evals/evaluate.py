@@ -52,6 +52,11 @@ from providers import (
     select_provider,
 )
 
+# Run log + regression baseline (Phase 6 Task 5). evals/results/ is gitignored,
+# so runlog persists each full-set run's headline numbers + rubric fingerprint
+# in a TRACKED file — the durable record the Phase-7 "no regression" gate reads.
+import runlog
+
 # Contract 4 shape — single source of truth shared with console.py. Re-exported
 # names (GOLDEN_COLUMNS, GoldenRow, load_golden, parse_ingredients) keep this
 # module the harness-side entry point for the golden set.
@@ -332,6 +337,72 @@ def write_results_csv(
     return out
 
 
+def _make_record(
+    *,
+    kind: str,
+    provider: str,
+    model: str,
+    rows: int,
+    attempted: int,
+    band_acc: float,
+    mae: float,
+    mean_signed: float,
+    processed: tuple[int, int],
+    results_csv: str,
+    note: str,
+) -> runlog.RunRecord:
+    """The single factory for run-log records (both single and bake-off rows).
+
+    Stamps the timestamp + rubric fingerprint here so every row in the log
+    carries identically-formed provenance — one edit site, not two.
+    """
+    return runlog.RunRecord(
+        timestamp=datetime.now().isoformat(timespec="seconds"),
+        kind=kind,
+        provider=provider,
+        model=model,
+        rows=rows,
+        attempted=attempted,
+        band_accuracy=band_acc,
+        score_mae=mae,
+        mean_signed_error=mean_signed,
+        processed_correct=processed[0],
+        processed_total=processed[1],
+        results_csv=results_csv,
+        note=note,
+        **runlog.rubric_fingerprint(),
+    )
+
+
+def log_bakeoff_runs(summaries: list[BakeoffSummary], note: str) -> None:
+    """Append every summary that actually ran to the run log (skips excluded).
+
+    Incomplete (rate-capped) runs ARE logged — the log records what happened,
+    and rows/attempted makes the truncation visible — they just can't become
+    the baseline (that path requires coverage; see main()).
+    """
+    ran = [s for s in summaries if not s.skipped_reason]
+    if not ran:
+        return
+    for s in ran:
+        runlog.append_run(
+            _make_record(
+                kind="bakeoff",
+                provider=s.name,
+                model=s.model,
+                rows=s.rows,
+                attempted=s.attempted,
+                band_acc=s.band_acc,
+                mae=s.mae,
+                mean_signed=s.mean_signed,
+                processed=s.processed_in_band,
+                results_csv=Path(s.results_csv).name if s.results_csv else "",
+                note=note,
+            )
+        )
+    print(f"Run log:        +{len(ran)} row(s) → {runlog.RUN_LOG}")
+
+
 # A provider must score at least this fraction of the attempted golden rows for
 # its metrics to be comparable / eligible for the recommendation. Below it, a
 # free-tier cap (Groq's tokens-per-day, Gemini's RPM) has truncated the run to a
@@ -606,7 +677,42 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Optional cap on the number of golden rows to run.",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--note",
+        default="",
+        help="Free-text note recorded with this run in evals/run_log.csv.",
+    )
+    parser.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help=(
+            "After a full-set single-model run, save its numbers as the accepted "
+            "regression baseline (evals/baseline.json). Refused for --limit "
+            "slices, bake-off modes, and runs under the coverage floor — the "
+            "baseline must be a complete, comparable run."
+        ),
+    )
+    parser.add_argument(
+        "--fail-on-regression",
+        action="store_true",
+        help=(
+            "Exit non-zero if this run regresses beyond the noise floor vs. "
+            "evals/baseline.json (the Phase-7 merge-gate hook). Single-model "
+            "runs only."
+        ),
+    )
+    args = parser.parse_args(argv)
+    if args.update_baseline and args.fail_on_regression:
+        # Together they'd overwrite the baseline with the very run being gated,
+        # then exit green — record OR gate, never both in one invocation.
+        parser.error("--update-baseline and --fail-on-regression are mutually exclusive")
+    if args.update_baseline or args.fail_on_regression:
+        flag = "--update-baseline" if args.update_baseline else "--fail-on-regression"
+        if args.all_providers or args.openrouter:
+            parser.error(f"{flag} needs a single-model run (not a bake-off mode)")
+        if args.limit is not None:
+            parser.error(f"{flag} needs a full-set run (drop --limit)")
+    return args
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -631,6 +737,8 @@ def main(argv: list[str] | None = None) -> None:
         providers = [select_provider("glm")] + openrouter_providers()
         summaries = run_bakeoff(golden, providers, RESULTS_DIR)
         print_bakeoff_table(summaries)
+        if args.limit is None:
+            log_bakeoff_runs(summaries, args.note)
         return
 
     # Cross-provider bake-off: run every registered (direct) provider and compare.
@@ -638,6 +746,8 @@ def main(argv: list[str] | None = None) -> None:
         providers = [select_provider(n) for n in sorted(PROVIDERS)]
         summaries = run_bakeoff(golden, providers, RESULTS_DIR)
         print_bakeoff_table(summaries)
+        if args.limit is None:
+            log_bakeoff_runs(summaries, args.note)
         return
 
     # Single registered provider: point the client seam at its profile in-process
@@ -671,6 +781,66 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Swap quality:   0/{len(golden)} rows graded (human 1–5 column)")
     print("Per-component MAE / automated swap judging: deferred to Phase 6.")
     print(f"Results CSV:    {out}")
+
+    # Run log + baseline (full-set runs only — a --limit slice is a non-random
+    # early-alphabet cut, not comparable to full runs; same rule as MIN_COVERAGE).
+    if args.limit is not None:
+        print("Run log:        skipped (--limit slice is not comparable)")
+        return
+    record = _make_record(
+        kind="single",
+        provider=args.provider or "",
+        model=model,
+        rows=len(results),
+        attempted=len(golden),
+        band_acc=band_accuracy(results),
+        mae=score_mae(results),
+        mean_signed=mean_signed_error(results),
+        processed=per_band_accuracy(results).get("Processed", (0, 0)),
+        results_csv=out.name,
+        note=args.note,
+    )
+    log_path = runlog.append_run(record)
+    print(f"Run log:        appended → {log_path}")
+
+    baseline = runlog.load_baseline()
+    verdict = ""
+    if baseline is not None:
+        verdict, lines = runlog.compare_to_baseline(record, baseline)
+        print("\nBaseline check:")
+        for line in lines:
+            print(f"  {line}")
+
+    if args.update_baseline:
+        if record.coverage < MIN_COVERAGE:
+            # A skip-riddled run must not become the number-to-beat.
+            print(
+                f"NOT updating baseline: only {record.rows}/{record.attempted} rows "
+                f"scored (< {MIN_COVERAGE:.0%} coverage floor)."
+            )
+            raise SystemExit(1)
+        runlog.write_baseline(record)
+        print(f"Baseline updated → {runlog.BASELINE_PATH}")
+    elif args.fail_on_regression:
+        # A gate that can't actually gate must fail loud, not pass vacuously:
+        # no baseline, a truncated run, or a model mismatch all mean "no valid
+        # comparison happened" — exiting 0 there would green-light anything.
+        if baseline is None:
+            print(
+                "GATE FAILED: no baseline to compare against "
+                f"({runlog.BASELINE_PATH} missing — seed it with --update-baseline)."
+            )
+            raise SystemExit(1)
+        if record.coverage < MIN_COVERAGE:
+            print(
+                f"GATE FAILED: only {record.rows}/{record.attempted} rows scored "
+                f"(< {MIN_COVERAGE:.0%} floor) — a truncated run is not comparable; "
+                "re-run before trusting a verdict either way."
+            )
+            raise SystemExit(1)
+        if verdict in (runlog.REGRESSION, runlog.INCOMPARABLE):
+            print(f"GATE FAILED: verdict is {verdict!r}.")
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -476,3 +476,211 @@ def test_main_single_provider_uses_profile_model(monkeypatch, tmp_path, capsys):
     assert captured["model"] == "llama-3.3-70b-versatile"
     import os
     assert os.environ["LLM_BASE_URL"] == "https://api.groq.com/openai/v1"
+
+
+# ---- run log + regression baseline (Phase 6 Task 5) --------------------------
+
+import runlog  # noqa: E402  (evals/ already on sys.path above)
+
+
+@pytest.fixture(autouse=True)
+def runlog_tmp(monkeypatch, tmp_path):
+    """Point the run log + baseline at tmp so tests never touch the tracked files.
+
+    Autouse on purpose: main() now appends to TRACKED files on any full-set
+    run, so isolation must be a path boundary for every test in this module,
+    not a convention that each future test remembers to opt into.
+    """
+    monkeypatch.setattr(runlog, "RUN_LOG", tmp_path / "run_log.csv")
+    monkeypatch.setattr(runlog, "BASELINE_PATH", tmp_path / "baseline.json")
+    monkeypatch.setattr(evaluate, "RESULTS_DIR", tmp_path / "results")
+    return tmp_path
+
+
+def _golden_csv(tmp_path, bands_scores):
+    """Write a minimal valid Contract-4 golden CSV with known labels."""
+    path = tmp_path / "golden.csv"
+    lines = [",".join(evaluate.GOLDEN_COLUMNS)]
+    for i, (band, score) in enumerate(bands_scores):
+        lines.append(f"g{i},pasted,Bowl {i},kale; oats,{band},{score},,,,")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_main_full_run_appends_run_log(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--note", "wiring test"])
+    out = capsys.readouterr().out
+    assert "Run log:" in out
+
+    with (runlog_tmp / "run_log.csv").open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "single"
+    assert rows[0]["model"] == "fake-model"
+    assert rows[0]["rows"] == "2" and rows[0]["attempted"] == "2"
+    assert rows[0]["band_accuracy"] == "1.0000"
+    assert rows[0]["note"] == "wiring test"
+    # Fingerprint of the real rubric files rides along for provenance.
+    assert rows[0]["rubric_version"].startswith("v")
+    assert len(rows[0]["config_hash"]) == 10
+
+
+def test_main_limit_slice_is_not_logged(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--limit", "1"])
+    out = capsys.readouterr().out
+    assert "not comparable" in out
+    assert not (runlog_tmp / "run_log.csv").exists()
+
+
+def test_main_update_baseline_then_within_noise(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    out = capsys.readouterr().out
+    assert "Baseline updated" in out
+    assert (runlog_tmp / "baseline.json").exists()
+
+    # An identical second run compares against the saved baseline: unchanged.
+    evaluate.main(["--model", "fake-model", "--golden", str(golden)])
+    out = capsys.readouterr().out
+    assert "Baseline check:" in out
+    assert "Within the noise floor" in out
+
+
+def test_main_fail_on_regression_exits_nonzero(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    capsys.readouterr()
+
+    # Same model now scores everything Processed/40 → band 0%, MAE 50: regression.
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(40, "Processed"))
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--model", "fake-model", "--golden", str(golden), "--fail-on-regression"])
+    assert excinfo.value.code == 1
+    assert "REGRESSION" in capsys.readouterr().out
+
+
+def test_main_regression_without_flag_still_exits_zero(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    capsys.readouterr()
+
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(40, "Processed"))
+    evaluate.main(["--model", "fake-model", "--golden", str(golden)])  # no raise
+    assert "REGRESSION" in capsys.readouterr().out
+
+
+def test_update_baseline_refused_under_coverage_floor(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+
+    calls = {"n": 0}
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return canned_verdict(90, "Clean")
+        raise evaluate.ScoringError("boom")
+    monkeypatch.setattr(evaluate, "score_recipe", flaky)
+
+    # 1/2 rows scored (50% < 90% floor) → refuse to make it the number-to-beat.
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    assert excinfo.value.code == 1
+    assert "NOT updating baseline" in capsys.readouterr().out
+    assert not (runlog_tmp / "baseline.json").exists()
+    # The run itself IS still logged (the log records what happened).
+    with (runlog_tmp / "run_log.csv").open(newline="", encoding="utf-8") as f:
+        assert len(list(csv.DictReader(f))) == 1
+
+
+@pytest.mark.parametrize("argv", [
+    ["--update-baseline", "--limit", "1"],
+    ["--update-baseline", "--openrouter"],
+    ["--fail-on-regression", "--all-providers"],
+    ["--update-baseline", "--fail-on-regression"],  # would gate + move the bar at once
+])
+def test_baseline_flags_rejected_outside_full_single_runs(argv):
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(argv)
+    assert excinfo.value.code == 2  # argparse usage error
+
+
+def test_gate_fails_loud_without_baseline(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+
+    # No baseline.json exists — the gate must not pass vacuously.
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--model", "fake-model", "--golden", str(golden), "--fail-on-regression"])
+    assert excinfo.value.code == 1
+    assert "no baseline" in capsys.readouterr().out
+
+
+def test_gate_fails_loud_on_truncated_run(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    capsys.readouterr()
+
+    # 1/2 rows score (mid-run failures) — not comparable, so the gate must
+    # fail loud rather than deliver a verdict off a non-random slice.
+    calls = {"n": 0}
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return canned_verdict(90, "Clean")
+        raise evaluate.ScoringError("boom")
+    monkeypatch.setattr(evaluate, "score_recipe", flaky)
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--model", "fake-model", "--golden", str(golden), "--fail-on-regression"])
+    assert excinfo.value.code == 1
+    assert "not comparable" in capsys.readouterr().out
+
+
+def test_gate_fails_on_model_mismatch(monkeypatch, runlog_tmp, capsys):
+    golden = _golden_csv(runlog_tmp, [("Clean", 90), ("Clean", 90)])
+    monkeypatch.setattr(evaluate, "score_recipe", lambda *a, **k: canned_verdict(90, "Clean"))
+    evaluate.main(["--model", "fake-model", "--golden", str(golden), "--update-baseline"])
+    capsys.readouterr()
+
+    # A different model can't be judged against this baseline — incomparable
+    # must fail the gate (no silent green on model drift), not skip it.
+    with pytest.raises(SystemExit) as excinfo:
+        evaluate.main(["--model", "other-model", "--golden", str(golden), "--fail-on-regression"])
+    assert excinfo.value.code == 1
+    assert "incomparable" in capsys.readouterr().out
+
+
+def test_log_bakeoff_runs_logs_ran_providers_only(runlog_tmp, capsys):
+    summaries = [
+        evaluate.BakeoffSummary(
+            name="glm", model="glm-4.5-flash", rows=52, attempted=52,
+            band_acc=0.615, mae=7.10, mean_signed=2.2,
+            processed_in_band=(7, 12), results_csv="/x/eval-glm.csv",
+        ),
+        evaluate.BakeoffSummary(  # rate-capped but ran → logged (visible truncation)
+            name="groq", model="llama-3.3-70b-versatile", rows=13, attempted=52,
+            band_acc=0.77, mae=5.0, mean_signed=1.0,
+            processed_in_band=(2, 3), results_csv="/x/eval-groq.csv",
+        ),
+        evaluate.BakeoffSummary(  # never ran → not logged
+            name="deepseek", model="deepseek-chat", attempted=52,
+            skipped_reason="preflight: no balance",
+        ),
+    ]
+    evaluate.log_bakeoff_runs(summaries, "bakeoff test")
+    assert "Run log:" in capsys.readouterr().out
+    with (runlog_tmp / "run_log.csv").open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert [r["provider"] for r in rows] == ["glm", "groq"]
+    assert rows[0]["kind"] == "bakeoff"
+    assert rows[1]["rows"] == "13" and rows[1]["attempted"] == "52"
+    assert rows[0]["results_csv"] == "eval-glm.csv"  # basename only

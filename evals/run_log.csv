@@ -1,0 +1,2 @@
+timestamp,kind,provider,model,rows,attempted,band_accuracy,score_mae,mean_signed_error,processed_correct,processed_total,rubric_version,lexicon_version,config_hash,results_csv,note
+2026-07-20T11:55:27,single,,glm-4.5-flash,51,52,0.5686,7.24,+2.3,7,12,v0.3,v0.3,57677e105c,eval-20260720-115527-glm-4.5-flash.csv,"Task 5 seed: first tracked baseline (tuned rubric v0.3, curated lexicons)"

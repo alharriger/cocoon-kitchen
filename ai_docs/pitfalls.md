@@ -79,6 +79,12 @@ Every mistake gets logged here during the retrospective (or immediately, if it b
 **Prevention rule:** For any multi-provider/free-tier eval: (a) **measure the real limit from the 429 body** (RPM vs tokens-per-day vs balance) before trusting a docs figure — and know a *daily* cap can't be paced around; (b) **preflight one row** so a bad key / empty balance / gated model is reported once, not 52 times; (c) **guard coverage** — a run under ~90% of attempted rows is a non-random slice, so flag it and **exclude it from any ranking/recommendation** (never let a partial run win), and say so out loud (no silent caps); (d) when free tiers make a clean comparison impractical, **OpenRouter** (one funded key, ~$0.30 for a full 8-model pass) sidesteps the RPM/daily/balance walls entirely — cost was never the problem, the caps were. Also: a model can *list* in a catalog yet 404 on the real call (Gemini 2.5-flash-lite "gated for new users"), so preflight with a real request, not a models-list.
 **Status:** Active
 
+### 2026-07-20 — Review/search subagents can run the LIVE harness and dirty tracked artifacts
+**What happened:** During Task 5's code-review gate, one of the fanned-out "read-only" review subagents executed the real `evals/evaluate.py` (Bash is in their toolset even when file-editing isn't) — a full 52-row live GLM run that appended a stray row to the newly-TRACKED `evals/run_log.csv` and spent real API quota. Caught only because the tracked file's line count looked wrong before commit.
+**Root cause:** "Read-only" agent types restrict *file edits*, not *shell side effects* — and Task 5 made eval runs self-persisting, so any incidental harness invocation now mutates a tracked artifact by design. The prompt never told the agents not to run live model calls.
+**Prevention rule:** When fanning out subagents in this repo, say explicitly: "do NOT execute evals/evaluate.py, app.py, console.py, or anything that makes model calls — inspect code and run pytest only." And since run logging is append-on-run now, always `git status`/inspect `evals/run_log.csv` + `evals/baseline.json` before committing to catch unintended appends. (Tests are already safe: the autouse fixture in test_evaluate.py path-isolates runlog writes.)
+**Status:** Active
+
 ### 2026-07-10 — Bare `python` is not on PATH
 **What happened:** `python` and `python -m pytest` fail (`command not found`); system `python3` is EOL 3.9.6 without pytest.
 **Root cause:** This machine has no `python` shim; the working interpreter is the project venv.

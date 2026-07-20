@@ -35,12 +35,22 @@ cocoonkitchen/
 │   ├── golden_set.csv        # HUMAN-OWNED labels (append-only final set)
 │   ├── backlog.jsonl         # recipes Amber queued for labeling (console-owned)
 │   ├── golden_drafts.jsonl   # draft rows awaiting review (separate-instance output)
-│   ├── evaluate.py           # runner + metrics → results/
+│   ├── evaluate.py           # runner + metrics → results/ (gitignored detail CSVs)
+│   ├── providers.py          # provider-profile registry for the bake-off
+│   ├── runlog.py             # run log + regression baseline (Task 5)
+│   ├── run_log.csv           # TRACKED: headline numbers per full-set run
+│   ├── baseline.json         # TRACKED: accepted regression baseline (--update-baseline)
 ├── ai_docs/golden_draft_handoff.md  # brief for the draft-generating instance
 └── data/logs/                # runtime JSONL (gitignored)
 ```
 
 ## Decision log
+
+### 2026-07-20 — Phase 6 Task 5: tracked run log + explicit regression baseline (noise-floor-aware)
+Per-model result CSVs live in `evals/results/`, which is **gitignored** — so every run's headline numbers were evaporating unless hand-copied into the change-log, and "did we regress?" had no durable reference. **Decision:** persistence is harness-owned code (`evals/runlog.py`), split into two tracked artifacts with different update rules:
+- **`evals/run_log.csv` — automatic, append-only.** Every full-set run (single or per-provider bake-off) appends timestamp, provider/model, rows/attempted, band accuracy, MAE, mean signed error, Processed-in-band, and a **rubric fingerprint** (declared `rubric.yaml`/`lexicons.yaml` versions + a content hash over both files). The hash is the drift detector: Amber curating a lexicon or retuning α changes it even when no version comment is bumped, so two log rows are only ever compared knowing whether the human-owned config moved between them. `--limit` slices are never logged (non-comparable — same principle as Task 4's coverage guard).
+- **`evals/baseline.json` — explicit, human-triggered.** The accepted number-to-beat updates only via `--update-baseline` (full-set, single-model, ≥90% coverage), never as a side effect — so moving the bar is a deliberate, git-visible act. Comparisons respect the measured **noise floor (±2 pp band / ±1 MAE)**: verdicts are regression / improved / within-noise, and cross-model runs are `incomparable` (ranking models is the bake-off's job, not the gate's). `--fail-on-regression` exits non-zero — the mechanical hook for Phase 7's "no regression on the golden set" merge gate.
+Seed baseline (2026-07-20, glm-4.5-flash): band 56.9% / MAE 7.24 / Processed 7/12 on 51/52 rows — within expectation of Task 3.5's 59.6%/7.33 given the noise floor + one transient row skip.
 
 ### 2026-07-19 — Phase 6 Task 4: provider-profile registry + OpenRouter bake-off; keep GLM default (eval-selected)
 The `--model` flag alone could only swap the model *name*, not the endpoint/key — so a cross-provider bake-off meant hand-editing `.env`. **Decision:** add a **provider-profile registry** (`evals/providers.py`, Claude-owned harness code — connection details, not the human-owned rubric) that sets the client-seam env vars in-process; `evaluate.py` gained `--provider`, `--all-providers`, and `--openrouter`. Amber funded an **OpenRouter** account so one key + base_url proxies many models (the model NAME is the only variable) — this sidesteps the free-tier walls that a first direct pass hit (Gemini **15 RPM** + new-account gating on `flash-lite`; Groq **100k tokens/day** cap → only 13/52 rows; DeepSeek needs a funded balance).
