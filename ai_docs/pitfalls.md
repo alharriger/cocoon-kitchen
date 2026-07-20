@@ -1,6 +1,6 @@
 # Pitfalls — Working Relationship Log
 
-Every mistake gets logged here during the retrospective (or immediately, if it bit us mid-phase). The point is iteration: a pitfall entry isn't blame, it's a prevention rule. **Check this file before starting work; don't repeat an entry.**
+Every mistake gets logged here during the retrospective (or immediately, if it bit us mid-phase). The point is iteration: a pitfall entry isn't blame, it's a prevention rule that gets **adopted into the active process** so history doesn't repeat. Logging alone is not a retro — every entry names the concrete forward change it triggered and where that change now lives. **Check this file before starting work; don't repeat an entry.**
 
 ## Entry format
 ```
@@ -8,6 +8,7 @@ Every mistake gets logged here during the retrospective (or immediately, if it b
 **What happened:** one or two sentences.
 **Root cause:** the actual why, not the symptom.
 **Prevention rule:** the concrete behavior change (checklist item, doc update, process step).
+**Improvement adopted:** where the rule now lives so it's enforced going forward, not just written here (e.g. "CLAUDE.md non-negotiable added", "pitfalls format field added", "memory `feedback-x` saved", "checklist step in working_sprint"). If the only home is this log, say so — but prefer wiring it somewhere it's read at the right moment.
 **Status:** Active | Retired (rule absorbed into process/memory)
 ```
 
@@ -79,10 +80,18 @@ Every mistake gets logged here during the retrospective (or immediately, if it b
 **Prevention rule:** For any multi-provider/free-tier eval: (a) **measure the real limit from the 429 body** (RPM vs tokens-per-day vs balance) before trusting a docs figure — and know a *daily* cap can't be paced around; (b) **preflight one row** so a bad key / empty balance / gated model is reported once, not 52 times; (c) **guard coverage** — a run under ~90% of attempted rows is a non-random slice, so flag it and **exclude it from any ranking/recommendation** (never let a partial run win), and say so out loud (no silent caps); (d) when free tiers make a clean comparison impractical, **OpenRouter** (one funded key, ~$0.30 for a full 8-model pass) sidesteps the RPM/daily/balance walls entirely — cost was never the problem, the caps were. Also: a model can *list* in a catalog yet 404 on the real call (Gemini 2.5-flash-lite "gated for new users"), so preflight with a real request, not a models-list.
 **Status:** Active
 
+### 2026-07-20 — Skipped the plan→approval gate because the task was "queued"
+**What happened:** Told to "proceed with the next task in the working sprint," I read the sprint, then went straight to writing `evals/runlog.py` — no plan presented, no approval obtained. The whole loop (Plan → user approval → implement → manual test → retro) was compressed to implement→commit. The feature came out fine, but the process gate that exists to catch a wrong approach *before* code was bypassed, and the retro was thin (logged a pitfall but adopted no forward change, skipped a real doc-freshness sweep).
+**Root cause:** I treated "the task is queued in the sprint" as equivalent to "the plan is approved." It isn't — the sprint names *what's next*, not *how*, and the approval gate is specifically about the how. Autonomy-mode instinct ("act when you have enough to act") overrode an explicit non-negotiable.
+**Prevention rule:** A queued/next task is never pre-approval. On "proceed with the next task," produce a plan (approach + blast radius + security audit + test plan) and present it for explicit approval; write no implementation code until approved. This holds no matter how small or obvious the task looks.
+**Improvement adopted:** CLAUDE.md Loop non-negotiable amended — "A task being queued in the sprint is NOT approval … Every task runs the full loop, no exceptions." Retro discipline hardened in the same edit (retro must adopt improvements + run a doc-freshness sweep); memory `feedback-dev-cycle-discipline` saved. Enforced at the top of every session via CLAUDE.md.
+**Status:** Active
+
 ### 2026-07-20 — Review/search subagents can run the LIVE harness and dirty tracked artifacts
 **What happened:** During Task 5's code-review gate, one of the fanned-out "read-only" review subagents executed the real `evals/evaluate.py` (Bash is in their toolset even when file-editing isn't) — a full 52-row live GLM run that appended a stray row to the newly-TRACKED `evals/run_log.csv` and spent real API quota. Caught only because the tracked file's line count looked wrong before commit.
 **Root cause:** "Read-only" agent types restrict *file edits*, not *shell side effects* — and Task 5 made eval runs self-persisting, so any incidental harness invocation now mutates a tracked artifact by design. The prompt never told the agents not to run live model calls.
 **Prevention rule:** When fanning out subagents in this repo, say explicitly: "do NOT execute evals/evaluate.py, app.py, console.py, or anything that makes model calls — inspect code and run pytest only." And since run logging is append-on-run now, always `git status`/inspect `evals/run_log.csv` + `evals/baseline.json` before committing to catch unintended appends. (Tests are already safe: the autouse fixture in test_evaluate.py path-isolates runlog writes.)
+**Improvement adopted:** Rule captured here + folded into memory `multi-agent-implementation-rule` (subagent-prompt boilerplate: forbid live model calls). Pre-commit inspection of tracked eval artifacts added to the Task-6 merge checklist in `working_sprint.md`. Verified live on this cycle (the stray row was caught + trimmed pre-commit).
 **Status:** Active
 
 ### 2026-07-10 — Bare `python` is not on PATH

@@ -7,14 +7,14 @@ score, band, flagged ingredients, and 3 swaps. Streamlit UI + eval harness, both
 importing one pure core: `score_recipe(title, ingredients) -> Verdict`.
 
 ## Status
-Phase 4 — observability & labeling console (the golden-set builder) on top of the Phase 3 scorer UI. Not deployed yet.
+Phase 6 — real evals & tuning: the scorer UI (Phase 3) + labeling console (Phase 4) sit on a 52-row golden set with a tuned rubric (tiered lexicons, penalty-sensitive composite), a cross-provider bake-off, and regression tracking (tracked run log + baseline). Not deployed yet — Phase 5 (deploy & harden) is queued behind Phase 6. See `ai_docs/working_sprint.md` for live status.
 
 ## Layout
 - `app.py` — Streamlit UI (thin consumer of the core)
 - `console.py` — golden-set builder console (`streamlit run console.py`, **local only — never deploy**): queue recipes → draft (via `ai_docs/golden_draft_handoff.md`) → grade → promote to `golden_set.csv`
 - `src/clean_recipe/` — pure, UI-agnostic core (`parse.py`, `score.py`, `schema.py`, `log.py`, …)
 - `rubric/` — `rubric.yaml` (machine) + `rubric.md` (human). **Human-owned; placeholder weights.**
-- `evals/` — golden set + eval harness (later phases)
+- `evals/` — golden set (`golden_set.csv`), eval harness (`evaluate.py` + `providers.py`), and regression tracking (`runlog.py` → tracked `run_log.csv` + `baseline.json`)
 - `data/logs/` — runtime JSONL (gitignored)
 - `ai_docs/` — the documentation system (start at `working_sprint.md`)
 
