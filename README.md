@@ -7,7 +7,7 @@ score, band, flagged ingredients, and 3 swaps. Streamlit UI + eval harness, both
 importing one pure core: `score_recipe(title, ingredients) -> Verdict`.
 
 ## Status
-Phase 6 — real evals & tuning: the scorer UI (Phase 3) + labeling console (Phase 4) sit on a 52-row golden set with a tuned rubric (tiered lexicons, penalty-sensitive composite), a cross-provider bake-off, and regression tracking (tracked run log + baseline). Not deployed yet — Phase 5 (deploy & harden) is queued behind Phase 6. See `ai_docs/working_sprint.md` for live status.
+Phase 6 (real evals & tuning) complete: the scorer UI (Phase 3) + labeling console (Phase 4) sit on a 52-row golden set with a tuned rubric (tiered lexicons + penalty-sensitive composite), a cross-provider bake-off, and regression tracking (tracked run log + baseline). Band accuracy ~57–59% on the golden set, up from ~31%. Next up before deploy: a Safety & Ethics program (harm-class eval slices — see `ai_docs/safety.md`), then Phase 5 (deploy & harden). Not deployed yet. See `ai_docs/working_sprint.md` for live status.
 
 ## Layout
 - `app.py` — Streamlit UI (thin consumer of the core)

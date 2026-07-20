@@ -6,122 +6,164 @@
 
 ---
 
-## Current phase: Phase 6 — Real evals & tuning (IN PROGRESS)
+## Current phase: Safety & Ethics program — Task 1: Safety eval foundation (NOT STARTED)
 
-> **Amber chose Phase 6 over Phase 5 at kickoff (2026-07-16)**, after a baseline run made the case: the placeholder rubric is systematically **too lenient** — deploying it (Phase 5) would ship a scorer that calls Processed food "Clean." Fix the rubric first, deploy after. Phase 5 (Deploy & Harden) is now **queued behind Phase 6** — its task skeleton is preserved under "Queued next" below.
+> **Phase 6 (Real evals & tuning) closed + merged to main 2026-07-20.** Its charter — a rubric that
+> *agrees with Amber's labels* on the 52-row golden set — is met (band ~57–59% / MAE ~7.1–7.3 /
+> Processed 7/12, up from ~31% / ~14). See "Completed phases" for the summary.
 >
-> **The bet:** a rubric that *agrees with Amber's labels* on the 52-row golden set. **Baseline (placeholder rubric, GLM-4.5-Flash, 2026-07-17):** band accuracy **~31–33%**, MAE **~14**, mean signed error **+13** (48/52 rows scored *too clean*). Per-band: Clean 8/8 · Mostly Clean 7/29 · Processed ~1/12 · Ultra-processed 1/3.
+> The **next body of work** is the Safety & Ethics program, opened after the 2026-07-20 Safety & Ethics
+> review (`ai_docs/safety.md`). The review surfaced a **harm-class** surface our entire pitfalls catalog
+> never named — unsafe swaps (a "cleaner" swap can introduce an allergen / violate a restriction /
+> worsen a medical need), medical-claim leakage, dietary-constraint blindness, cuisine bias — and that
+> the only *enforced* refusal today is `is_recipe:false`. Task 1 stands up the **measurement** for those
+> harms; the fixes come later (see order of operations). **Per the amended Loop, this task plans-and-
+> approves in its own instance — being queued here is NOT approval to build.**
 
-**Branch:** `phase-6/evals` (off `main`).
+**Branch:** open a fresh `safety/eval-foundation` off `main` (Phase 6 is merged).
 
-### Phase 6 task skeleton
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| 1 | Plan Phase 6 + security audit; approval | ✅ | Approved 2026-07-16. Human/Claude split: Amber owns weights/cutoffs/marker-list *contents*/targets; Claude owns harness/diagnostics/bake-off/docs. |
-| 2 | **Diagnostic harness upgrade** | ✅ | `evaluate.py`: captures the 6 model sub-scores/row; prints per-band accuracy + band-confusion (cleaner/harsher) + mean signed error + **`subscore_means`** (the lever-finder) + per-row progress heartbeat. Results CSV gains `signed_error` + 6 sub-score cols. 210 tests. Gates: code-review (1 low → fixed: `BANDS`↔`schema.Band` sync assert), security-review clean. **Committed on `phase-6/evals`.** |
-| 3 | **Populate rubric lexicons** (I draft, Amber curates) | ✅ | **DONE 2026-07-18.** Split marker lists into console-owned `rubric/lexicons.yaml` (new `src/clean_recipe/lexicons.py`); **3 flat + 3 tiered (1–5) lexicons** (added-sugar/fat/sodium graded by quality, per Amber). `prompt.py` renders a GROUNDING + CALIBRATION block (worst-tier scoring, ingredient **decomposition**, anti-leniency nudge). New Console **Lexicons** tab (per-tier editors) for Amber's curation. **Key finding:** passive lists did nothing (32.7%); the calibration rule + tiers moved it to **~40–44% band acc / MAE ~11** (from ~32% / ~14). 227 tests. Contract 2→v0.3, Contract 3 logged. **Surfaced the composite-dilution finding → next build (see OPEN FINDING + PROPOSAL below).** |
-| 3.5 | **Penalty-sensitive composite** | ✅ | **DONE 2026-07-19.** Amber chose **Option 1 (worst-dimension pull), α=0.4** after a spectrum walk-through. `score.compose_score` = `round((1-α)·weighted_mean + α·min(subs))`; α human-owned in `rubric.yaml` (`composition.alpha`, clamped [0,1], α=0 ≡ old mean). **Eval delta (52-row, GLM):** band acc **39.2%→59.6%**, MAE **10.96→7.33**, **Processed 1/12→7/12**, mean signed **+10.3→+2.2**; sub-score means flat (gain is composition, not drift); small predicted collateral (Clean 7/7→6/8). 234 tests. Gates: code-review (2 minor self-findings → fixed: v0.2→v0.3 header sync, empty-`composition:` block hardened w/ test), security-review clean. Manual test passed (Amber). Contract 2→v0.3 logged w/ delta; architecture 2026-07-18 RESOLVED; rubric.md documents the knob. **Manual test surfaced a UX finding → parked as roadmap Phase 12** (clean recipe forced to emit hollow `none →` swaps). Committed on `phase-6/evals` (NOT merged). |
-| 4 | Bargain-model bake-off | ✅ | **DONE 2026-07-19.** Built provider-profile **registry** (`evals/providers.py`) + `evaluate.py --provider/--all-providers/--openrouter` (preflight, per-row API-error skip, free-tier pacing, **coverage guard** so a rate-capped partial run can't win, eval-selected pick). Direct free tiers hit walls (Gemini 15 RPM + flash-lite new-acct gating; Groq 100k tok/**day** → 13/52; DeepSeek needs balance) → Amber funded **OpenRouter** (one key, many models). **Bake-off (52-row, tuned rubric):** `gpt-4o-mini` **63.5% / MAE 6.77 / Processed 11-12** led (Phase-6 target band); `glm-4.5-flash` 61.5% / 7.10 / 7-12 a close **free** 2nd; gemini-2.5-flash-lite tied band but lenient (Proc 5-12); qwen/gpt-oss/glm-4.7-flash weak (gpt-oss forced-reasoning slowest 37.5s). **Decision (Amber): keep glm-4.5-flash default for now; re-run OpenRouter bake-off at periodic check-ins.** ~$0.36 spent. 256 tests. Logged: Contract 3 change-log (no contract change), architecture 2026-07-19, `.env.example`. Committed on `phase-6/evals` (NOT merged). |
-| 5 | Regression tracking + docs | ✅ | **DONE 2026-07-20.** New `evals/runlog.py` + `evaluate.py` wiring: every **full-set** run appends headline numbers + **rubric fingerprint** (declared versions + content hash of `rubric.yaml`/`lexicons.yaml` — catches curation/α edits without a version bump) to TRACKED `evals/run_log.csv` (`--limit` slices never logged; bake-off providers logged per completed run). Accepted baseline in TRACKED `evals/baseline.json`, updated only via explicit `--update-baseline` (full-set, single-model, ≥90% coverage). Same-model full runs print a noise-floor-aware comparison (±2pp band / ±1 MAE → regression/improved/within-noise; cross-model = incomparable); `--fail-on-regression` exits 1 (Phase-7 gate hook). `--note` annotates rows. **Seed baseline (GLM, rubric hash `57677e105c`): band 56.9% / MAE 7.24 / Processed 7/12 on 51/52** (`perfect-baked-potato` transient skip) — within expectation of Task 3.5's 59.6/7.33. 288 tests. No contract change (change-log entry logged); architecture 2026-07-20 + layout; product Phase-6 row refreshed (stale open-finding text → RESOLVED). Gates: code-review (8-angle fan-out; 10 confirmed findings fixed — headline: `--fail-on-regression` could pass vacuously on missing baseline / model mismatch / truncated run → gate now fails loud; `--update-baseline`+`--fail-on-regression` now mutually exclusive; schema-drifted baseline names its fix; verdict constants; record-builder consolidation; autouse test isolation of tracked paths); security-review clean. New pitfall logged (review subagent ran the live harness → stray run-log row, trimmed). |
-| 6 | Merge gates + merge to main | ⬜ | |
-| 7 | Retro → pitfalls → refresh this doc for Phase 5 | ⬜ | |
+### Task 1 DoD (Safety eval foundation)
+Negative/harm-class eval slices run on the existing golden harness and produce **baseline harm-rate
+numbers** (e.g. "unsafe-swap rate 18%", "medical-claim leak 3/40"), reported **separately** from band
+accuracy and **kept out of** the tracked run-log/baseline. Detectors unit-tested as code. Human-curated
+fixtures (allergen/restriction lexicon, medical-claim bait set, injection payloads) drafted broad by
+Claude, curated by Amber. Docs synced (`safety.md` changelog + "Enforced by" column). Merge gates clean.
 
-### Definition of done (Phase 6)
-Band accuracy / MAE meet Amber's targets on the 52-row set; a bake-off run with a recommended default model; every prompt/contract change logged in `llm_contracts.md`; merge gates clean; merged to main.
+### Next body of work — "Safety eval foundation" kickoff (for the FRESH instance) — read this first
+You are starting the Safety & Ethics program in a fresh Claude instance. **Run the full loop** (plan →
+Amber approval → implement + tests → pause for manual test → fix → commit → retro under the adopt-
+improvements rule). **Verify on-disk state first** (git log, run the suite). Read `ai_docs/safety.md` in
+full before planning; it is the source of truth for the harm register, the refusal policy, and the
+human-owned open decisions.
 
-### Why the baseline can't be fixed by weights alone (the key finding)
-The composite score/band are **computed in code** from `rubric.yaml` weights; the six **sub-scores come from the model**. `subscore_means` shows every dimension averaging **69–89** — uniformly generous. No convex combination of 69–89 produces a Processed-band composite, so **weight-tuning can't fix leniency.** The lever is the **empty marker lists** (they ground the model's sub-scores in the prompt). See architecture decision **2026-07-17**.
+**The task:** stand up **negative / harm-class eval slices** on the existing golden harness
+(`evals/evaluate.py` + `golden.py`), so the harm classes in `safety.md` become *measured numbers*, not
+prose. The harness measures band accuracy / MAE only; nothing measures harm today. Candidate slices
+(confirm scope with Amber in the plan):
+- **Unsafe-swap** (H1, highest priority) — does a proposed swap introduce a common allergen or a
+  restriction violation? Mostly code-based: a **common-allergen / restriction lexicon** (Claude drafts
+  broad, Amber curates — same discipline as the scoring lexicons; a NEW safety lexicon, separate from
+  the scoring lexicons, contents human-owned) matched against each swap's `to_ingredient`; report the %
+  of swaps that introduce a top allergen without flagging it. No dietary-constraint *input* exists yet,
+  so this slice measures *unconditioned* unsafe swaps — the baseline the Phase-13 fix must drive down.
+- **Medical-claim** (H2) — a small **bait set** of inputs designed to elicit a health claim + a claim
+  detector (keyword + optional LLM-judge) asserting the output never contains a medical/nutrition claim.
+  Ties to the refusal policy (`safety.md` §2).
+- **Cuisine-bias** (H6) — **cuisine-tag** the golden rows (Claude drafts tags, Amber curates) and report
+  per-cuisine band accuracy + mean signed error; flag systematic harshness.
+- **Injection red-team** (H7) — golden rows with embedded injection payloads; assert output stays
+  schema-valid, the score is not manipulated, and no unsafe swap text survives.
 
-### OPEN FINDING + PROPOSAL — composite dilutes severe offenders (the NEXT build)
-After Task 3 (tiered lexicons + calibration rule + decomposition), the model's sub-scores now **discriminate** processed dishes — leniency is largely fixed (uncurated draft **44.2% / MAE 10.65**; post-curation **40.4% / MAE 10.9**, up from ~32% / ~14). The residual miss flipped: processed recipes land **one band too high** (Processed → Mostly Clean; Processed-band 1/12).
-
-**Root cause (Amber, 2026-07-18):** `score.compose_score` is a **pure weighted mean** — a convex combination bounded between the min and max sub-score. A single severe offender (her example: chicken + broccoli + *artificial flavor*) is averaged away — worst on `additive_count`, which weighs only 0.05 — so one bad ingredient can't visibly drop the band. Amber's requirement: *a bad ingredient must visibly tank the score even when everything else is clean.*
-
-**Proposal — make the composite penalty-sensitive (worst axis caps cleanliness).** All knobs stay human-owned in `rubric.yaml`; measure before/after on the golden set.
-- **Option 1 — worst-dimension pull (RECOMMENDED):** `composite = (1-α)·weighted_mean + α·min_subscore`. One knob α (~0.3–0.5). Uses the model's existing sub-scores, no new ingredient-parsing layer. Chicken+broccoli+artificial-flavor (additive_count≈20) → visibly drops toward Processed.
-- **Option 2 — below-threshold penalty:** subtract points for each sub-score under a floor T. More expressive, more knobs (T + scale).
-- **Option 3 — power-mean p<1:** sub-linear aggregation that punishes low dims; one knob p, less intuitive.
-- **Option 4 — hard severity cap:** a tier-1/NOVA-4 marker caps the band — but needs code to match ingredients to lexicons (new layer); the model's low sub-score already encodes this, so prefer Option 1.
-
-This **subsumes** the band-compression fix (Option 1 is the mechanism; band cutoffs/weights are the secondary knob). **Do not chase it with more prompt strictness.** Mirrored in architecture 2026-07-18 + product roadmap Phase 6 row. Needs Amber to pick an option + set α before build (weights/knobs are human-owned). **Must close before Phase 6 exits.**
-
-### Task 3.5 kickoff (for the FRESH instance) — read this first
-You are picking up Phase 6 in a new Claude instance. **Run the full loop** (plan → Amber approval → implement + tests → pause for manual test → fix → commit → retro). Per the 2026-07-14 cross-instance pitfall, **verify the on-disk state before acting** (git log, run the suite, run the eval) rather than trusting this note.
-
-**The task:** make the composite score **penalty-sensitive** so a single severe offender visibly drops the band — Amber's requirement, her example being *chicken + broccoli + artificial flavor* should NOT read as Clean/Mostly Clean. Today `score.compose_score` (`src/clean_recipe/score.py`) is a pure weighted mean, which mathematically averages one bad axis away. See "OPEN FINDING + PROPOSAL" directly above for the four options + rationale.
-
-**FIRST DECISION (open — resolve with Amber in your plan; weights/knobs are HUMAN-owned):** which composition option, and the knob value. **Claude's recommendation: Option 1 (worst-dimension pull), α≈0.4** — `composite = round((1-α)·weighted_mean + α·min(sub_scores))`. Do not build until Amber confirms the option + α.
+**FIRST DECISIONS (open — resolve with Amber in the plan; human-owned):** (a) which slices this round
+(recommend unsafe-swap + medical-claim first — highest harm, least label effort); (b) the
+allergen/restriction lexicon contents and what counts as an "unsafe swap"; (c) whether the cuisine-bias
+slice is worth the golden-labeling effort now; (d) the pass/fail **harm-rate thresholds** — these gate
+deploy.
 
 **What's settled:**
-- The lexicons/prompt work (Task 3) is done + committed (`9cc5fe2`); don't redo it. The residual miss is composition, not sub-score leniency.
-- Composite stays **code-computed from human-owned knobs** (architecture 2026-07-09/11). The new knob (α, or Option-2/3 params) lives in `rubric.yaml`, not hardcoded — mirror how `weights`/`bands` are loaded and passed through `load_rubric()`.
-- No new layer: use the model's existing six sub-scores; do NOT add code that re-matches ingredients against the lexicons (that's Option 4, rejected for now).
+- `ai_docs/safety.md` is the register/source of truth. All 13 pitfalls are quality-class; the only
+  enforced refusal today is `is_recipe:false`. These evals *measure* the gap; the *fixes* are later
+  items (Phase 13 guardrails, Phase 5 filters) — **build the measurement in this task, not the fixes.**
+- Human-owned discipline holds: Claude drafts candidate lexicons/tags/bait-sets broad; Amber curates. Do
+  NOT touch rubric weights, `composition.alpha`, or the existing golden labels.
+- No new scoring layer. Harm evals are measurement code alongside the existing harness; the
+  Verdict/Contract shape does not change for this task (the fixes will change contracts later — log then).
 
 **Blast radius (walk it in one unit of work — 2026-07-12 pitfall):**
-- `src/clean_recipe/score.py` — `compose_score()` gains the penalty term; it takes the new knob from the rubric. Check the clamp/round + the 0–100 bound still hold.
-- `rubric/rubric.yaml` — add the human-owned knob (e.g. `composition: {alpha: 0.4}`) with a PLACEHOLDER-style comment; `derive_band`/`bands` unchanged unless Amber also retunes cutoffs.
-- `ai_docs/llm_contracts.md` — Contract 2 (new rubric key) + a change-log entry with the **before/after eval delta**. This is a scoring-semantics change; log it.
-- `tests/test_score.py` — cover the new formula: severe-offender case drops the band; all-high stays high; the α=0 case reduces to the old weighted mean (regression guard).
-- Docs: `rubric/rubric.md` (document the knob), architecture 2026-07-18 entry (mark the decision resolved).
+- `evals/` — new harm-eval module(s)/slices; report harm rates alongside band accuracy, clearly labeled.
+  **Keep harm slices OUT of the band-accuracy / regression numbers and the tracked run-log baseline**
+  (`evals/baseline.json`, `evals/run_log.csv`) — a separate report, so harm measurement never corrupts
+  the rubric-quality signal.
+- New fixtures — the allergen/restriction lexicon + medical-claim bait set + injection payloads
+  (human-curated contents; draft broad).
+- `tests/` — unit-test the detectors (allergen match, claim detector) as code, not only via eval runs.
+- Golden data — cuisine tags, if in scope, are a human-curated column; follow the Contract-4 /
+  `golden.py` append discipline and verify the promote step (2026-07-14 pitfall).
+- Docs — `safety.md` changelog + its refusal-policy "Enforced by" column updated as slices land;
+  `llm_contracts.md` only if a contract actually changes (it should not for measurement).
 
-**Measurement discipline:** current baseline to beat is **~40.4% band accuracy / MAE 10.9 / Processed 1/12** (2026-07-18, GLM-4.5-Flash, curated lexicons). Re-run `.venv/bin/python evals/evaluate.py` before/after; the win condition is the **Processed band landing in-band** without wrecking Clean/Mostly Clean. Mind the ~2pp / ~1 MAE noise floor. If Option 1 alone under-shoots, Amber's band cutoffs/weights are the secondary knob (also hers).
+**Measurement discipline:** these slices produce **harm-rate** numbers, not band accuracy — establish
+and record the **baseline harm numbers**; they gate the deploy (#3) and guardrail (#2) decisions.
 
-**Final step (so "done" is unambiguous):** eval delta logged in `llm_contracts.md`, full suite green, committed on `phase-6/evals`, retro done (pitfalls + refresh this block). Do NOT merge to main — Phase 6 continues (Task 4 bake-off, Task 5 regression tracking, Task 6 merge).
+**Environment:** import name `clean_recipe`; run Python via `.venv/bin/python`; model calls need `.env`
+(z.ai GLM key + `LLM_EXTRA_BODY={"thinking":{"type":"disabled"}}`); harness heartbeat = working, not
+hung. **Subagents must NOT run live model calls** (2026-07-20 pitfall) — inspect code / run pytest only.
 
-**Environment:** import name `clean_recipe`; run Python via `.venv/bin/python`; model calls need `.env` (z.ai GLM key + `LLM_EXTRA_BODY={"thinking":{"type":"disabled"}}`); the eval's per-row heartbeat means it's working, not hung (~2–4s/row × 52). If a `streamlit` server is running, restart it after editing imported modules (2026-07-18 pitfall).
+## Order of operations from here (Safety & Ethics program → existing roadmap)
 
-### Task 3 kickoff (for the fresh instance) — read this first
-Amber is starting Task 3 in a **new Claude instance**; run the full loop there (plan → approval → build → manual test → retro). What's already settled vs. open:
-- **Approach (settled, Amber 2026-07-16):** "I draft, you curate." Claude drafts candidate marker lists from public sources; **Amber curates/approves every list** — the contents are human-owned. Curated **in-prompt lexicon, NOT RAG** (architecture 2026-07-17).
-- **Draft size (settled, Amber 2026-07-17):** **draft BROAD** — generous lists (common + less-common markers) so Amber mostly *cuts*. "Easier to cut than add." (Same spirit as the swap-drafting feedback memory.)
-- **Proposed schema shape (PROPOSED, not yet approved — the next instance should confirm with Amber in its plan):** expand `rubric.yaml` to one lexicon per punishable dimension —
-  - `nova4_markers` → ultra_processing (exists, empty)
-  - `refined_seed_oils` → fat_quality (exists, empty)
-  - `added_sugar_markers` → added_sugar (NEW; ~60 sugar aliases)
-  - `sodium_preservative_markers` → sodium_preservatives (NEW; nitrites, benzoates, …)
-  - `additive_markers` → additive_count (NEW; colors, emulsifiers, carrageenan, …)
-  - `aliases` → canonicalization (exists, empty)
-- **Open question for the plan:** whether to also ground `whole_food_ratio` with a `whole_food_whitelist` (fuzzy/large — proposed to skip unless a number demands it).
-- **Blast radius when the shape lands:** new `rubric.yaml` keys must be rendered in `prompt.py` `_rubric_reference`, and the prompt change logged in `llm_contracts.md` (Contract 3). This is a model-I/O contract change — walk the blast radius (2026-07-12 pitfall). The model's sub-scores *should* shift down for processed items — that's the whole point; measure with `evaluate.py` before/after.
-- **Measurement discipline:** re-run `.venv/bin/python evals/evaluate.py` after each curation pass; compare `subscore_means` + band accuracy. Mind the ~2pp / ~1 MAE noise floor (temperature=0 still varies).
+Set 2026-07-20 after the Safety & Ethics review (`ai_docs/safety.md`); Phase 6 now closed. **Per the
+amended Loop, each item plans-and-approves in its own instance; being queued here is NOT approval to
+build.** Full register + SHIR sizing + human-owned open decisions: `ai_docs/safety.md`; roadmap rows:
+`cocoonkitchen_product.md` "Safety & Ethics roadmap additions". This is Claude's proposed order — Amber
+curates it.
 
-### Decisions carried in (Phase 6)
-- **Marker lists = curated in-prompt lexicon, NOT RAG** (architecture 2026-07-17, Amber). Bounded well-known vocab fits in the prompt; no vector store. External nutrition-DB/product lookup is **deferred + eval-gated** (product roadmap Phase 9 — not approved).
-- **Golden labels + rubric weights + marker-list contents are human-owned** (CLAUDE.md). Claude may *draft* candidate lexicons; Amber curates the final content. `rubric.yaml` weights are still placeholder until Amber finalizes.
-- **Model/provider is eval-selected, never by brand** (architecture 2026-07-11). Dev default stays GLM-4.5-Flash until a bake-off number says otherwise.
-- **Composite is code-computed from weights; model only judges the 6 sub-scores** (architecture 2026-07-11) — the reason weights alone can't fix leniency.
-- **Contract 4 is at v0.3**; shape lives in `src/clean_recipe/golden.py`, imported by both `evaluate.py` and `console.py`.
-- **Eval noise floor:** even at `temperature=0`, identical runs move ~2pp band accuracy / ~1 MAE. Treat sub-threshold swings as noise; average over N runs if needed.
+**1. Safety eval foundation** *(the current task — kickoff above)*. Build negative/harm eval slices on
+the golden harness; their numbers gate everything downstream. Maps to product roadmap "Phase 6 (amend)".
+
+**2. Safe swaps & dietary-constraint policy** *(product Phase 13 — harm-class)*. The fix for the top harm
+(H1/H3): a dietary-constraint channel, allergen-aware swaps, and a safe-failure path when no clean *and*
+safe swap exists — relaxing the exactly-3 cardinality, which is why parked Phase 12 folds in here.
+Scoping session first (`safety.md` §3). **Sequencing decision (Amber owns):** if #1 shows a high
+unsafe-swap rate, this precedes public deploy; if a strong disclaimer + allergen caveat is judged
+sufficient interim mitigation, deploy may precede it with documented residual risk.
+
+**3. Deploy & Harden + safety hardening** *(product Phase 5 + amendments)*. The Phase-5 deploy skeleton
+(preserved below), now bundling: disclaimer/scope **always** renders (Air Canada framing), a
+**medical-claim output filter** (H2), **prompt-injection hardening** (H7), and a shipped
+**`SAFETY.md` / model card** (H9). Gated on #1's numbers.
+
+**4. Then existing roadmap:** **Phase 7 — Explainability & trust** (also folds in provenance disclosure +
+uncertainty signaling to counter overtrust, H8) → **Phase 14 — Disordered-eating guardrail** (H5; can
+move earlier if Amber prefers) → **Phase 8 — Swap depth / "cleaner spectrum"** → Phase 9+ (deferred).
+
+### Phase 5 (item 3) — Deploy & Harden skeleton (preserved; safety amendments in #3 above)
+Deploy waited until the rubric agrees with Amber's labels (Phase 6, done). Task skeleton, ready to
+resume in sequence:
+- **Phase 5 — Deploy & Harden**: public Streamlit Cloud URL for **`app.py` only** (console.py never
+  exposed — architecture 2026-07-12), secrets via Cloud config (`LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL`/
+  `LLM_EXTRA_BODY`, never commit `.env`), harden public surface (errors never leak internals; `data/logs`
+  gitignored + ephemeral), `/security-review` + manual test of the shareable link, merge gates. **DoD:**
+  a shareable URL where pasting a recipe returns a sane Verdict card, console unreachable, secrets in
+  Cloud config, security review clean. **Safety amendments (2026-07-20):** disclaimer always renders,
+  medical-claim output filter, prompt-injection hardening, shipped model card — see order-of-operations #3.
+
+### Decisions carried in (still live)
+- **Golden labels + rubric weights + marker-list contents are human-owned** (CLAUDE.md). Claude may
+  *draft* candidate lexicons/lists/tags; Amber curates the final content.
+- **Model/provider is eval-selected, never by brand** (architecture 2026-07-11). Dev/prod default stays
+  **GLM-4.5-Flash** (Task-4 decision, 2026-07-19); re-run `evaluate.py --openrouter` at periodic
+  check-ins to re-bake. Do NOT switch the default without Amber. ~$0.36/full pass — real money.
+- **Composite is code-computed from human-owned knobs** (architecture 2026-07-11); `composition.alpha`
+  (=0.4) lives in `rubric.yaml`. Do NOT reopen the penalty-sensitive-composite decision (Task 3.5).
+- **Marker lists = curated in-prompt lexicon, NOT RAG** (architecture 2026-07-17). External
+  nutrition-DB/product lookup is **deferred + eval-gated** (product roadmap Phase 9 — not approved).
+- **Eval noise floor:** even at `temperature=0`, identical runs move ~2pp band accuracy / ~1 MAE. Treat
+  sub-threshold swings as noise; average over N runs if needed. Encoded in `runlog.compare_to_baseline`.
+- **Regression baseline (2026-07-20, GLM, rubric hash `57677e105c`):** band 58.8% / MAE 7.12 /
+  Processed 7/12 on 51/52 (`evals/baseline.json`). Updated only via explicit `--update-baseline`
+  (full-set, single-model, ≥90% coverage). Phase-7's merge gate can use `evaluate.py --fail-on-regression`.
+- **Contract 4 is at v0.3**; shape lives in `src/clean_recipe/golden.py`, imported by both `evaluate.py`
+  and `console.py`. **Contract 2 is at v0.3** (tiered lexicons + `composition.alpha`).
 
 ### Environment reminders (from pitfalls)
 - Import name is `clean_recipe`, NOT `cocoonkitchen`.
-- Interactive terminal auto-activates `.venv` via direnv; **agent tool calls / scripts are non-interactive — use `.venv/bin/python`**.
-- Run the eval: `.venv/bin/python evals/evaluate.py` (add `--limit N` for a quick slice; the progress heartbeat shows it's working, not hung — each row is a real ~2–4s model call).
+- Interactive terminal auto-activates `.venv` via direnv; **agent tool calls / scripts are
+  non-interactive — use `.venv/bin/python`** (e.g. `.venv/bin/python -m pytest`).
+- Run the eval: `.venv/bin/python evals/evaluate.py` (add `--limit N` for a quick slice; the progress
+  heartbeat shows it's working, not hung — each row is a real ~2–4s model call). **A full-set run
+  auto-appends a row to the TRACKED `evals/run_log.csv`** — inspect `git status` after any run.
 - Model calls need `.env` (z.ai GLM key + `LLM_EXTRA_BODY={"thinking":{"type":"disabled"}}`).
-- When changing the model-I/O contract, walk the full blast radius (prompt + `_REPAIR_HINT` + all callers' `except` + validators) — see 2026-07-12 pitfall.
+- When changing the model-I/O contract, walk the full blast radius (prompt + `_REPAIR_HINT` + all
+  callers' `except` + validators) — see 2026-07-12 pitfall.
+- After editing an imported module used by a running `streamlit run` server, **fully restart** it
+  (2026-07-18 pitfall) — a browser refresh serves the stale module.
+- Env pin: `pyproject.toml` pins `pyarrow==21.0.0` + `pandas==2.3.3`. Re-run `pip install -e ".[dev]"`
+  on stale venvs.
 
-### Blockers
-- **Task 4 (bake-off)** needs Amber's API keys for the non-GLM providers (Gemini/Groq/DeepSeek/Qwen). Not blocking Task 3.
-
-### Handoff notes for next session
-- **Phase 6 Task 4 (bargain-model bake-off) is DONE — committed on `phase-6/evals`.** Provider-profile **registry** (`evals/providers.py`) + `evaluate.py --provider/--all-providers/--openrouter`. The reusable tool is the deliverable as much as the numbers: `--openrouter` is the go-to (one funded OpenRouter key proxies many models; free-tier direct providers hit RPM/daily/balance walls). **Eval leader was `gpt-4o-mini` (Processed 11/12 — the Phase-6 target); Amber chose to KEEP `glm-4.5-flash` as default for now** (free, close 2nd) and re-bake at periodic check-ins. Full table in `llm_contracts.md` change-log (2026-07-19) + architecture 2026-07-19. **Do NOT switch the default model** without Amber. To re-check models later: `.venv/bin/python evals/evaluate.py --openrouter` (needs `OPEN_ROUTER_API_KEY` in `.env`, already set). ~$0.36/full pass — cheap, but it IS real money, so mind the projected-cost line it prints.
-- **Phase 6 Task 5 (regression tracking) is DONE — committed on `phase-6/evals`.** The durable artifacts are TRACKED `evals/run_log.csv` (auto-appended per full-set run, with a rubric fingerprint so config drift is visible) and `evals/baseline.json` (explicit `--update-baseline` only). **Baseline seeded 2026-07-20 (GLM): band 56.9% / MAE 7.24 / Processed 7/12 on 51/52 rows** — one transient skip (`perfect-baked-potato`); within noise-expectation of Task 3.5's 59.6/7.33. If Amber wants a cleaner seed, re-run `.venv/bin/python evals/evaluate.py --update-baseline` on a 52/52 pass — updating the baseline is deliberately a human-triggered act. Phase 7's merge gate can now be `evaluate.py --fail-on-regression`.
-- **THE NEXT BUILD is Task 6 — merge gates + merge to main** (Amber's manual test of Task 5 + full-phase gates first), then Task 7 (retro → pitfalls → refresh this doc for Phase 5 Deploy & Harden). **Amber's Task-5 manual test:** run `.venv/bin/python evals/evaluate.py` once, eyeball the appended `evals/run_log.csv` row + the printed "Baseline check" (should read within-noise), and decide whether to re-seed the baseline on a 52/52 pass. **DONE 2026-07-20 — passed:** band 58.8% / MAE 7.12, "Within the noise floor — treat as unchanged" (same `perfect-baked-potato` row skipped, this time GLM omitted a swap `reason`; 51/52). **Task-6 merge checklist add:** before the merge commit, `git status` + inspect `evals/run_log.csv`/`evals/baseline.json` for unintended appends (2026-07-20 pitfall), and re-seed the baseline on a clean 52/52 pass if Amber wants one.
-- **AFTER Phase 6 closes, the next body of work is the Safety & Ethics program** (added 2026-07-20 from the Safety & Ethics interview-playbook review). New register `ai_docs/safety.md` catalogs a **harm-class** surface our quality-class pitfalls never named — unsafe swaps (a "cleaner" swap can introduce an allergen / violate a restriction / worsen a medical need), model medical-claim leakage, dietary-constraint blindness, cuisine bias — and records that the only *enforced* refusal today is `is_recipe:false`. See **"Order of operations from here"** + the **"Safety eval foundation" kickoff** below for the full sequence and the first task. Per the amended Loop, each item plans-and-approves in its own instance; queued ≠ approved.
-- **Retro (Task 5) — done under the amended retro rule (adopt improvements + doc sweep, not just log):**
-  - **Process miss (the big one):** I skipped the plan→approval gate and ran a thin retro. → *Adopted:* CLAUDE.md Loop non-negotiable now states a queued task is NOT approval (every task plans-and-approves first); retro non-negotiable now requires adopted improvements + a doc-freshness sweep; pitfalls entry format gained an **Improvement adopted** field; memory `feedback-dev-cycle-discipline` saved. (Amber's 2026-07-20 directive.)
-  - **Subagent ran live harness** → stray tracked-run-log row (trimmed). *Adopted:* subagent prompts forbid live model calls; pre-commit artifact inspection is now a Task-6 checklist item.
-  - **Doc-freshness sweep (new step):** README status was stale (said "Phase 4") + evals layout line outdated → both fixed. architecture / llm_contracts / product / working_sprint current (edited in-cycle). rubric.md + design_system untouched by Task 5 → verified still accurate. `.env.example` current from Task 4.
-  - Note: per-task security review of committed work meant the branch-wide gate re-covered old ground — fine, it stayed clean.
-- **Task 3.5 (penalty-sensitive composite) DONE** — Option 1 worst-dimension pull, α=0.4 (`composition.alpha` in `rubric.yaml`). Band 39.2%→59.6%, MAE 10.96→7.33, Processed 1/12→7/12. **Do NOT reopen.** Branch NOT merged (Phase 6 incomplete).
-- **New parked roadmap item (Phase 12, 2026-07-19):** Amber's Task-3.5 manual test found that an already-clean recipe (salmon+quinoa+kale) is forced by the exactly-3-swaps contract to emit hollow `none → X` "swaps." Parked as a UX fix (relabel to optional flourishes / relax cardinality to up-to-3 / celebratory clean state) — touches Contract 1/3 + `app.py` card. NOT approved; scoping-first.
-- **Retro (Task 3.5):** no new pitfalls. Both merge-gate findings were minor self-inflicted (forgot the planned v0.2→v0.3 header bump; a present-but-empty `composition:` block would've crashed) and were caught+fixed by the gates working as intended — existing "keep docs in sync" + "enforce ranges, fail loud" rules already cover them. Measurement discipline (before/after eval, verify baseline on-disk) paid off cleanly.
-- **Phase 6 Task 2 (diagnostics) DONE** — committed `f35fe05`. `evaluate.py` prints the lever-finder; `.venv/bin/python evals/evaluate.py`.
-- **Task 3 is the live work and starts in a fresh Claude instance** (Amber's call, 2026-07-16) — do the full loop there. **Read the "Task 3 kickoff" block above first**: approach + draft-size are settled, the schema shape is proposed-not-approved (confirm in the plan). Draft the per-dimension marker lexicons broad for Amber to curate, wire into `rubric.yaml` + `prompt.py`, log the Contract-3 prompt change, re-run to measure the delta.
-- **Golden-set coverage caveat:** extremes are thin — only **3 Ultra-processed** and **8 Clean** rows (29 Mostly Clean). If tuning signal is weak at the ends, Amber may queue a few more clearly-clean / clearly-ultra-processed recipes via the console. Also: per-band n is small, so per-band accuracy swings are noisy.
-- **Env pin (pitfall):** `pyproject.toml` pins `pyarrow==21.0.0` + `pandas==2.3.3`. Re-run `pip install -e ".[dev]"` on stale venvs.
-- **RESOLVED 2026-07-20 — `.claude/` + `.agents/` gitignored** (not committed): `.claude/settings.local.json` is a per-user permission allowlist with machine-absolute paths (`.local.json` = gitignore by convention; shared perms would go in a tracked `.claude/settings.json`), and `.agents/` is a symlink tree into the gitignored `.venv`. Neither is shareable project config.
-- **Deferred (unchanged):** Contract 4's `raw_ingredients` file-path option; per-component MAE (no per-sub-score golden targets) + automated swap-quality judging remain in Phase 6's later reaches.
+### Golden-set coverage caveat (carried)
+Extremes are thin — only **3 Ultra-processed** and **8 Clean** rows (29 Mostly Clean). Per-band n is
+small, so per-band accuracy swings are noisy. If tuning/harm signal is weak at the ends, Amber may queue
+a few more clearly-clean / clearly-ultra-processed recipes via the console.
 
 ---
 
@@ -130,49 +172,5 @@ Amber is starting Task 3 in a **new Claude instance**; run the full loop there (
 - **Phase 1 — Scaffold, Schemas & Logging** ✅ (2026-07-10): repo layout; pinned deps; `schema.py` (Verdict/SubScores/Swap); placeholder `rubric.yaml`; `log.py`; 15 tests. Merged to main.
 - **Phase 2 — Core Engines** ✅ (2026-07-11): `parse.py` (paste/URL, pinned-IP SSRF guard); provider-neutral `client.py`/`prompt.py`/`score.py` (GLM-4.5-Flash dev default, thinking disabled via `LLM_EXTRA_BODY`, code-composed score+band, retry-once); `evals/evaluate.py` + golden template (band accuracy + score MAE, `--model` bake-off); `cli.py`. 77 tests. Merge gates clean (security-review fixed a DNS-rebinding TOCTOU; code-review fixed a sub-score bounds gap; `/verify` real GLM end-to-end). Amber manually verified. Retro pitfalls logged: GLM unbounded-thinking (disable, don't raise tokens), z.ai base URL, schema range enforcement.
 - **Phase 3 — UI & End-to-End** ✅ (2026-07-12): `app.py` Streamlit scorer (thin consumer; paste/link tabs; Verdict card = score + band pill, six weight-ordered bars, flagged list, 3 swaps, disclaimer; friendly error/empty states, never a traceback; untrusted strings md-escaped, `unsafe_allow_html` only for the schema-validated band pill). `streamlit==1.59.1` pinned. Two feedback-driven adds during manual test: (a) direnv `.envrc` so bare `python`/`streamlit` work in-project; (b) two-layer `is_recipe` validation (parse prose-guard + model gate → `NotARecipeError`) after a job posting scored as a recipe. 95 tests. Merge gates: code-review found 4 (stale `_REPAIR_HINT` breaking retry, eval-run abort on new raise, narrowed swaps validation, cli traceback) — all fixed + tested; security-review clean (band-pill HTML takes only validated/code-owned values). Retro pitfall logged: contract changes must ripple to every shape-dependent site. Roadmap gained Phase 7 (explainability/trust). Sub-agent rule added: fan out implementation only for ≥2 independent tracks (architecture 2026-07-12). Merged to main.
-- **Phase 4 — Observability & Labeling Console (golden-set builder)** ✅ (2026-07-14, merge `4df5b0c`): `console.py` local-only entrypoint (5 tabs: Backlog / Review & grade / Promote / Logs / Results), built as a **backlog→drafts→grade→promote pipeline** after a v1 "author a row" form flopped in manual testing (author→grade pivot — pitfall logged). `src/clean_recipe/golden.py` is the single source of truth for the Contract-4 row + pipeline shapes (`GoldenRow`/`BacklogEntry`/`GoldenDraft`, append-only writer w/ formula-injection defang, promote). Contract 4 evolved **v0.1→v0.2 (`swap_quality`)→v0.3 (`other_alternatives`/`concerns` + axis doctrine)** from real labeling feedback. Forgiving recipe-text paste (strips site furniture, cuts at Directions) added to the core parser; link fetch (SSRF-guarded) wired into the backlog. Golden creation ran in a **separate Claude instance** via `ai_docs/golden_draft_handoff.md`; finalized here → **52-row golden set** promoted into `golden_set.csv`. Env pin: `pyarrow==21.0.0`/`pandas==2.3.3` (pyarrow-25 `st.dataframe` segfault — pitfall logged). 202 tests. Merge gates: code-review (1 low latent finding — comma-in-alternative round-trip, no data affected), security-review clean (zero `unsafe_allow_html`; CSV defang covers the new column; SSRF guard intact), `/verify` passed on the real 52-row data. Retro pitfalls logged: cross-instance handoff (verify end state), author→grade (validate workflow before building the entry UI). Merged to main.
-
-## Order of operations from here (Phase 6 close → Safety & Ethics program → existing roadmap)
-
-Set 2026-07-20 after the Safety & Ethics review (`ai_docs/safety.md`). Phase 6's original charter (rubric agrees with Amber's labels) is met (Tasks 1–5; manual test passed). The review surfaced a **harm-class** surface — the entire pitfalls catalog is quality-class, and the only *enforced* refusal is `is_recipe:false` — which reorders what ships before a public deploy. **Per the amended Loop non-negotiable (2026-07-20), each item below still plans-and-approves in its own instance; being queued here is NOT approval to build.** Full register + SHIR sizing + human-owned open decisions: `ai_docs/safety.md`; roadmap rows: `cocoonkitchen_product.md` "Safety & Ethics roadmap additions". This sequence is Claude's proposed order — Amber curates it.
-
-**0. Close Phase 6** — Task 6 (merge gates + merge to main) + Task 7 (retro). See task table above; manual test already passed (58.8% / 7.12, within noise).
-
-**1. Safety eval foundation** *(new — the next body of work; kickoff block below)*. Build negative/harm eval slices on the existing golden harness — they *measure* the harm-class gaps, and their numbers gate everything downstream. Candidate slices: unsafe-swap, medical-claim, cuisine-bias, injection red-team. Maps to product roadmap "Phase 6 (amend)".
-
-**2. Safe swaps & dietary-constraint policy** *(product Phase 13 — harm-class)*. The fix for the top harm (H1/H3): a dietary-constraint channel, allergen-aware swaps, and a safe-failure path when no clean *and* safe swap exists — relaxing the exactly-3 cardinality, which is why parked Phase 12 folds in here. Scoping session first (`safety.md` §3). **Sequencing decision (Amber owns):** if #1 shows a high unsafe-swap rate, this precedes public deploy; if a strong disclaimer + allergen caveat is judged sufficient interim mitigation, deploy may precede it with documented residual risk.
-
-**3. Deploy & Harden + safety hardening** *(product Phase 5 + amendments)*. The Phase-5 deploy skeleton (preserved below), now bundling: disclaimer/scope **always** renders (Air Canada framing), a **medical-claim output filter** (H2), **prompt-injection hardening** (H7), and a shipped **`SAFETY.md` / model card** (H9). Gated on #1's numbers.
-
-**4. Then existing roadmap:** **Phase 7 — Explainability & trust** (now also folds in provenance disclosure + uncertainty signaling to counter overtrust, H8) → **Phase 14 — Disordered-eating guardrail** (harm-class ethics scope, H5; can move earlier if Amber prefers) → **Phase 8 — Swap depth / "cleaner spectrum"** → Phase 9+ (deferred). See `cocoonkitchen_product.md` roadmap.
-
-### Next body of work — "Safety eval foundation" kickoff (for the FRESH instance) — read this first
-You are starting the Safety & Ethics program in a fresh Claude instance. **Run the full loop** (plan → Amber approval → implement + tests → pause for manual test → fix → commit → retro under the adopt-improvements rule). **Verify on-disk state first** (git log, run the suite) — this doc drifts (a parallel commit landed mid-authoring on 2026-07-20). Read `ai_docs/safety.md` in full before planning; it is the source of truth for the harm register, the refusal policy, and the human-owned open decisions.
-
-**The task:** stand up **negative / harm-class eval slices** on the existing golden harness (`evals/evaluate.py` + `golden.py`), so the harm classes in `safety.md` become *measured numbers*, not prose. The harness measures band accuracy / MAE only; nothing measures harm today. Candidate slices (confirm scope with Amber in the plan):
-- **Unsafe-swap** (H1, highest priority) — does a proposed swap introduce a common allergen or a restriction violation? Mostly code-based: a **common-allergen / restriction lexicon** (Claude drafts broad, Amber curates — same discipline as the scoring lexicons; a NEW safety lexicon, separate from the scoring lexicons, contents human-owned) matched against each swap's `to_ingredient`; report the % of swaps that introduce a top allergen without flagging it. No dietary-constraint *input* exists yet, so this slice measures *unconditioned* unsafe swaps — the baseline the Phase-13 fix must drive down.
-- **Medical-claim** (H2) — a small **bait set** of inputs designed to elicit a health claim + a claim detector (keyword + optional LLM-judge) asserting the output never contains a medical/nutrition claim. Ties to the refusal policy (`safety.md` §2).
-- **Cuisine-bias** (H6) — **cuisine-tag** the golden rows (Claude drafts tags, Amber curates) and report per-cuisine band accuracy + mean signed error; flag systematic harshness. (The playbook's Type-2 bias audit, made measurable.)
-- **Injection red-team** (H7) — golden rows with embedded injection payloads; assert output stays schema-valid, the score is not manipulated, and no unsafe swap text survives.
-
-**FIRST DECISIONS (open — resolve with Amber in the plan; human-owned):** (a) which slices this round (recommend unsafe-swap + medical-claim first — highest harm, least label effort); (b) the **allergen/restriction lexicon contents** and what counts as an "unsafe swap"; (c) whether the cuisine-bias slice is worth the golden-labeling effort now; (d) the pass/fail **harm-rate thresholds** — these are the numbers that gate deploy.
-
-**What's settled:**
-- `ai_docs/safety.md` is the register/source of truth. All 13 pitfalls are quality-class; the only enforced refusal today is `is_recipe:false`. These evals *measure* the gap; the *fixes* are later items (Phase 13 guardrails, Phase 5 filters) — **build the measurement in this task, not the fixes.**
-- Human-owned discipline holds: Claude drafts candidate lexicons/tags/bait-sets broad; Amber curates. Do NOT touch rubric weights, `composition.alpha`, or the existing golden labels.
-- No new scoring layer. Harm evals are measurement code alongside the existing harness; the Verdict/Contract shape does not change for this task (the fixes will change contracts later — log those then).
-
-**Blast radius (walk it in one unit of work — 2026-07-12 pitfall):**
-- `evals/` — new harm-eval module(s)/slices; report harm rates alongside band accuracy, clearly labeled. **Keep harm slices OUT of the band-accuracy / regression numbers and the tracked run-log baseline** (`evals/baseline.json`, `evals/run_log.csv`) — a separate report, so harm measurement never corrupts the rubric-quality signal.
-- New fixtures — the allergen/restriction lexicon + medical-claim bait set + injection payloads (human-curated contents; draft broad).
-- `tests/` — unit-test the detectors (allergen match, claim detector) as code, not only via eval runs.
-- Golden data — cuisine tags, if in scope, are a human-curated column; follow the Contract-4 / `golden.py` append discipline and verify the promote step (2026-07-14 pitfall).
-- Docs — `safety.md` changelog + its refusal-policy "Enforced by" column updated as slices land; `llm_contracts.md` only if a contract actually changes (it should not for measurement).
-
-**Measurement discipline:** these slices produce **harm-rate** numbers (e.g. "unsafe-swap rate 18%", "medical-claim leak 3/40"), not band accuracy — establish and record the **baseline harm numbers**; they gate the deploy (#3) and guardrail (#2) decisions.
-
-**Environment:** import name `clean_recipe`; run Python via `.venv/bin/python`; model calls need `.env` (z.ai GLM key + `LLM_EXTRA_BODY={"thinking":{"type":"disabled"}}`); harness heartbeat = working, not hung. Subagents must NOT run live model calls (2026-07-20 pitfall). Do NOT merge to main — this opens the new phase.
-
-### Phase 5 (item 3) — Deploy & Harden skeleton (preserved; safety amendments in #3 above)
-Deploy waits until the rubric agrees with Amber's labels (Phase 6) — no point shipping a systematically-lenient scorer. Task skeleton, ready to resume in sequence:
-- **Phase 5 — Deploy & Harden**: public Streamlit Cloud URL for **`app.py` only** (console.py never exposed — architecture 2026-07-12), secrets via Cloud config (`LLM_API_KEY`/`LLM_BASE_URL`/`LLM_MODEL`/`LLM_EXTRA_BODY`, never commit `.env`), harden public surface (errors never leak internals; `data/logs` gitignored + ephemeral), `/security-review` + manual test of the shareable link, merge gates. **DoD:** a shareable URL where pasting a recipe returns a sane Verdict card, console unreachable, secrets in Cloud config, security review clean. **Safety amendments (2026-07-20):** disclaimer always renders, medical-claim output filter, prompt-injection hardening, shipped model card — see order-of-operations #3.
+- **Phase 4 — Observability & Labeling Console (golden-set builder)** ✅ (2026-07-14, merge `4df5b0c`): `console.py` local-only entrypoint (5 tabs: Backlog / Review & grade / Promote / Logs / Results), built as a **backlog→drafts→grade→promote pipeline** after a v1 "author a row" form flopped in manual testing (author→grade pivot — pitfall logged). `src/clean_recipe/golden.py` is the single source of truth for the Contract-4 row + pipeline shapes (`GoldenRow`/`BacklogEntry`/`GoldenDraft`, append-only writer w/ formula-injection defang, promote). Contract 4 evolved **v0.1→v0.2 (`swap_quality`)→v0.3 (`other_alternatives`/`concerns` + axis doctrine)** from real labeling feedback. Forgiving recipe-text paste (strips site furniture, cuts at Directions) added to the core parser; link fetch (SSRF-guarded) wired into the backlog. Golden creation ran in a **separate Claude instance** via `ai_docs/golden_draft_handoff.md`; finalized here → **52-row golden set** promoted into `golden_set.csv`. Env pin: `pyarrow==21.0.0`/`pandas==2.3.3` (pyarrow-25 `st.dataframe` segfault — pitfall logged). 202 tests. Merge gates: code-review (1 low latent finding), security-review clean, `/verify` passed on the real 52-row data. Retro pitfalls logged: cross-instance handoff (verify end state), author→grade (validate workflow before building the entry UI). Merged to main.
+- **Phase 6 — Real evals & tuning** ✅ (2026-07-20): the placeholder rubric was systematically **too lenient** (~31–33% band accuracy, +13 too-clean skew, 48/52 rows scored cleaner than label). Fixed the rubric *before* deploying. **Task 2** — eval diagnostics / lever-finder (`evaluate.py` prints per-band accuracy, band confusion, mean signed error, `subscore_means`; the key finding: every sub-score dim averaged 69–89, so no weighted mean can land Processed → the lever is the empty marker lists, not the weights). **Task 3** — tiered rubric lexicons + prompt calibration/decomposition: split marker lists into console-owned `rubric/lexicons.yaml` (new `src/clean_recipe/lexicons.py`), 3 flat + 3 tiered (1–5) lexicons, prompt renders a GROUNDING + CALIBRATION block, new Console Lexicons tab; pitfall logged (grounding a cheap model needs a decision RULE, not just data). **Task 3.5** — penalty-sensitive composite (Amber: Option 1 worst-dimension pull, `composition.alpha=0.4` in `rubric.yaml`): band 39.2%→59.6%, MAE 10.96→7.33, Processed 1/12→7/12. **Task 4** — provider-profile registry (`evals/providers.py`) + `--provider/--all-providers/--openrouter` bake-off (preflight, per-row API-error skip, coverage guard, eval-selected pick); `gpt-4o-mini` led (63.5% / 6.77 / 11-12) but Amber **kept `glm-4.5-flash`** (free, close 2nd), re-bake at check-ins; ~$0.36 spent; pitfalls logged (measure real free-tier limits; exclude truncated runs). **Task 5** — tracked run log + explicit regression baseline (`evals/runlog.py`, TRACKED `run_log.csv` + `baseline.json` w/ rubric fingerprint; noise-floor-aware `compare_to_baseline`; `--fail-on-regression` gate); pitfall logged (review subagent ran the live harness → stray tracked row, trimmed). Also this phase: dev-cycle discipline amendments (plan-gate + adopt-improvements retro + doc-freshness sweep, CLAUDE.md non-negotiables) and the Safety & Ethics review (`ai_docs/safety.md` harm register). Ended at band ~57–59% / MAE ~7.1–7.3 / Processed 7/12 (GLM, tuned rubric v0.3). 288 tests. Merge gates: branch-wide code-review (no correctness blockers; 1 low cosmetic console item noted), security-review clean, pre-commit artifact inspection clean. Retro under the adopt-improvements rule: **no new pitfalls** — the two Task-5 process pitfalls' adopted improvements (plan-gate held; subagent-live-harness avoided by inline reviews) were **validated live** this cycle. Contract 2→v0.3, Contract 4 v0.3. Merged to main (`--no-ff`).
