@@ -120,7 +120,7 @@ Amber is starting Task 3 in a **new Claude instance**; run the full loop there (
 - **Task 3 is the live work and starts in a fresh Claude instance** (Amber's call, 2026-07-16) — do the full loop there. **Read the "Task 3 kickoff" block above first**: approach + draft-size are settled, the schema shape is proposed-not-approved (confirm in the plan). Draft the per-dimension marker lexicons broad for Amber to curate, wire into `rubric.yaml` + `prompt.py`, log the Contract-3 prompt change, re-run to measure the delta.
 - **Golden-set coverage caveat:** extremes are thin — only **3 Ultra-processed** and **8 Clean** rows (29 Mostly Clean). If tuning signal is weak at the ends, Amber may queue a few more clearly-clean / clearly-ultra-processed recipes via the console. Also: per-band n is small, so per-band accuracy swings are noisy.
 - **Env pin (pitfall):** `pyproject.toml` pins `pyarrow==21.0.0` + `pandas==2.3.3`. Re-run `pip install -e ".[dev]"` on stale venvs.
-- **Untracked, still Amber's call:** `.claude/` and `.agents/` remain untracked — decide whether to gitignore or commit.
+- **RESOLVED 2026-07-20 — `.claude/` + `.agents/` gitignored** (not committed): `.claude/settings.local.json` is a per-user permission allowlist with machine-absolute paths (`.local.json` = gitignore by convention; shared perms would go in a tracked `.claude/settings.json`), and `.agents/` is a symlink tree into the gitignored `.venv`. Neither is shareable project config.
 - **Deferred (unchanged):** Contract 4's `raw_ingredients` file-path option; per-component MAE (no per-sub-score golden targets) + automated swap-quality judging remain in Phase 6's later reaches.
 
 ---
